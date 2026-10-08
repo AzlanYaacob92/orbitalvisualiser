@@ -33,7 +33,7 @@
       const dark = isDark();
       btn.setAttribute('aria-pressed', String(dark));
       btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
-      if (icon) icon.textContent = dark ? '☀️' : '🌙';
+      if (icon) icon.innerHTML = Icons.svg(dark ? 'sun' : 'moon');
     }
     btn.addEventListener('click', function () {
       const next = isDark() ? 'light' : 'dark';
@@ -901,4 +901,6 @@
   $('axis-key').textContent = 'Axes: x, y, z (z is up)';
   initViewer();
   renderAll();
+  /* the axis letters are drawn on a canvas: redraw them once the web fonts have arrived */
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (viewer) { viewer.axisKey = ''; updateViewer(); } });
 })();
