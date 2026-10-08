@@ -524,7 +524,7 @@
     addAxisTicks(L, color);
   }
 
-  /* axis scale: one tick per unit, 1 unit = size of the n=1 orbital (radiusScale(1)) */
+  /* axis scale: one unlabelled tick per unit, 1 unit = size of the n=1 orbital (radiusScale(1)) */
   function addAxisTicks(L, color) {
     const unit = Shapes.radiusScale(1);
     const t = L * 0.025;
@@ -537,12 +537,6 @@
         const c = d.clone().multiplyScalar(i * unit);
         const geo = new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(p, -t * 1.6), c.clone().addScaledVector(p, t * 1.6)]);
         viewer.axes.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color })));
-        if (k === 'x' || i % 2 === 1) {
-          const sp = labelSprite(String(i), color, L * 0.14);
-          sp.position.copy(c.clone().addScaledVector(p, -t * 4));
-          sp.material.opacity = 0.95;
-          viewer.axes.add(sp);
-        }
       }
     });
   }
