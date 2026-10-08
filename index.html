@@ -14,10 +14,12 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+    <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
+  </button>
+
   <header class="site-header">
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
-      <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
-    </button>
+    <nav class="top-links" aria-label="Chemculator navigation"><a class="home-link" href="https://azlanyaacob92.github.io/">← Chemculator home</a></nav>
     <a class="brand-mark" href="https://azlanyaacob92.github.io/" aria-label="Chemculator home">
       <img class="brand-mark__img--light" src="brand/mark.svg" alt="" width="43" height="48">
       <img class="brand-mark__img--dark" src="brand/mark-on-dark.svg" alt="" width="43" height="48">
@@ -25,8 +27,6 @@
     <span class="eyebrow">Atomic Orbitals</span>
     <h1 class="site-title">Chemulate Orbitals</h1>
   </header>
-
-  <a class="back-link" href="https://azlanyaacob92.github.io/">← Chemculator home</a>
 
   <main class="viz-layout">
 
@@ -36,14 +36,18 @@
       <div class="slice-bar">
         <fieldset id="slice-mode">
           <legend>Select by</legend>
-          <label><input type="radio" name="slice-mode" value="orbital" checked /> <span>Orbital</span></label>
-          <label><input type="radio" name="slice-mode" value="subshell" /> <span>Subshell</span></label>
-          <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
+          <div class="seg seg--strong">
+            <label><input type="radio" name="slice-mode" value="orbital" checked /> <span>Orbital</span></label>
+            <label><input type="radio" name="slice-mode" value="subshell" /> <span>Subshell</span></label>
+            <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
+          </div>
         </fieldset>
         <fieldset id="click-mode">
           <legend>Clicking a box</legend>
-          <label><input type="radio" name="click-mode" value="explore" checked /> <span>Explore</span></label>
-          <label><input type="radio" name="click-mode" value="fill" /> <span>Fill electrons</span></label>
+          <div class="seg">
+            <label><input type="radio" name="click-mode" value="explore" checked /> <span>Explore</span></label>
+            <label><input type="radio" name="click-mode" value="fill" /> <span>Fill electrons</span></label>
+          </div>
         </fieldset>
         <p class="slice-hint" id="slice-hint"></p>
       </div>
@@ -87,7 +91,7 @@
         <div class="element-row">
           <label for="element-select">Load an element</label>
           <select id="element-select" class="select"></select>
-          <button id="btn-load-element" class="btn btn--primary" type="button">Load</button>
+          <button id="btn-load-element" class="btn btn--soft" type="button">Load</button>
           <button id="btn-clear" class="btn btn--ghost" type="button">Clear</button>
         </div>
       </div>
