@@ -14,6 +14,7 @@
 (function () {
   const Chem = window.OrbitalChem;
   const Shapes = window.OrbitalShapes;
+  const Motion = window.Motion;
 
   /* ---------------- theme toggle ---------------- */
   const root = document.documentElement;
@@ -79,7 +80,9 @@
     anchor: '2px',            // the single orbital that anchors re-resolution when mode changes
     lastElectron: null,       // {orbital, spin, removed}
     message: '',              // transient error (e.g. 54 cap)
-    loadedZ: null
+    loadedZ: null,
+    hidden: new Set(),        // orbitals switched off via the legend; cleared whenever the selection changes
+    hiddenKey: ''
   };
 
   /* ---------------- selection logic ---------------- */
@@ -234,6 +237,8 @@
         const e = el('span', 'electron', spin === 'up' ? '↑' : '↓');
         e.dataset.spin = spin;
         e.setAttribute('aria-hidden', 'true');
+        const last = state.lastElectron;
+        if (last && !last.removed && last.orbital === oid && last.spin === spin) e.classList.add('is-new');
         b.insertBefore(e, tagEl);
       });
       b.setAttribute('aria-label',
@@ -394,7 +399,9 @@
       renderer, scene, camera, canvas,
       group: new THREE.Group(), axes: new THREE.Group(),
       azimuth: DEFAULT_VIEW.azimuth, polar: DEFAULT_VIEW.polar,
-      dist: 6, fitDist: 6, maxR: 1, dirty: true, meshCache: {}
+      dist: 6, fitDist: 6, maxR: 1, dirty: true, meshCache: {},
+      items: new Map(),   // orbital id -> { mesh, size, mode, to, leaving } for everything on stage
+      fade: null, camTween: null, framed: false, axisKey: ''
     };
     scene.add(v.group); scene.add(v.axes);
 
@@ -428,7 +435,10 @@
     const ptrs = new Map();
     let pinch0 = 0, dist0 = 0;
     function clampDist() { v.dist = Math.min(v.fitDist * 3, Math.max(v.maxR * 1.4, v.dist)); }
+    /* the student takes over: stop any camera move that is still playing */
+    function holdCamera() { if (v.camTween) { v.camTween.cancel(); v.camTween = null; } }
     canvas.addEventListener('pointerdown', function (e) {
+      holdCamera();
       canvas.setPointerCapture(e.pointerId);
       ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (ptrs.size === 2) {
@@ -456,6 +466,7 @@
     canvas.addEventListener('pointercancel', up);
     canvas.addEventListener('wheel', function (e) {
       e.preventDefault();
+      holdCamera();
       v.dist *= Math.exp(e.deltaY * 0.0012); clampDist(); v.requestRender();
     }, { passive: false });
     canvas.addEventListener('keydown', function (e) {
@@ -467,7 +478,7 @@
       else if (k === '+' || k === '=') { v.dist *= 0.9; clampDist(); }
       else if (k === '-' || k === '_') { v.dist *= 1.1; clampDist(); }
       else used = false;
-      if (used) { e.preventDefault(); v.requestRender(); }
+      if (used) { e.preventDefault(); holdCamera(); v.requestRender(); }
     });
 
     viewer = v;
@@ -494,12 +505,12 @@
 
   function labelSprite(text, color, size) {
     const c = document.createElement('canvas');
-    c.width = c.height = 64;
+    c.width = c.height = 128;   // drawn large so the letter stays crisp on a hi-DPI screen
     const ctx = c.getContext('2d');
-    ctx.font = 'bold 44px sans-serif';
+    ctx.font = '600 88px ' + cssVar('--font-display', 'sans-serif');
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#' + color.getHexString();
-    ctx.fillText(text, 32, 34);
+    ctx.fillText(text, 64, 68);
     const tex = new THREE.CanvasTexture(c);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
     sp.scale.set(size, size, 1);
@@ -569,65 +580,146 @@
     return c[oid];
   }
 
-  /* which orbitals are drawn, solid or ghost, per the contract */
+  /* How each selected orbital is drawn:
+       solid - a lone orbital, or the orbital picked inside a subshell view;
+       ghost - the siblings of a picked orbital (faint);
+       clear - several orbitals with nothing picked (shell, or a whole subshell): translucent,
+               so the orbitals nested inside one another can all be seen.
+     p.hidden marks orbitals the student switched off in the legend. */
   function drawPlan() {
     const ids = selectedOrbitalIds();
-    const plan = ids.map((id) => ({ id: id, solid: true }));
-    if (state.selection.level === 'subshell' && state.focusOrbital && ids.indexOf(state.focusOrbital) >= 0) {
-      plan.forEach((p) => { p.solid = p.id === state.focusOrbital; });
-    }
-    return plan;
+    const key = state.selection.level + ':' + state.selection.id;
+    if (state.hiddenKey !== key) { state.hidden.clear(); state.hiddenKey = key; }
+    const picked = state.selection.level === 'subshell' && state.focusOrbital && ids.indexOf(state.focusOrbital) >= 0;
+    return ids.map((id) => ({
+      id: id,
+      mode: ids.length === 1 ? 'solid' : picked ? (id === state.focusOrbital ? 'solid' : 'ghost') : 'clear',
+      hidden: state.hidden.has(id)
+    }));
   }
 
+  const MODE_OPACITY = { solid: 1, clear: 0.32, ghost: 0.16 };
+
+  function buildOrbitalMesh(id, colors) {
+    const data = meshData(id);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+    geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
+    const col = new Float32Array(data.signs.length * 3);
+    for (let i = 0; i < data.signs.length; i++) {
+      const c = data.signs[i] < 0 ? colors.neg : colors.pos;
+      col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false });
+    return new THREE.Mesh(geo, mat);
+  }
+
+  /* Keeps what is already on stage and changes only what differs: new orbitals
+     grow in, dropped ones fade out, and one that changes role (solid / clear /
+     ghost) eases to its new opacity. The camera is left where the student put it. */
   function updateViewer() {
-    const plan = drawPlan();
-    updateLegend(plan);
+    const allPlan = drawPlan();
+    updateLegend(allPlan);
     if (!viewer) return;
+    const v = viewer;
+    const plan = allPlan.filter((p) => !p.hidden);
     const colors = themeColors();
-    clearGroup(viewer.group);
+    const wanted = new Set();
     let maxR = 0.5;
     plan.forEach(function (p) {
       const o = Chem.getOrbital(p.id);
-      const data = meshData(p.id);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-      geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      const col = new Float32Array(data.signs.length * 3);
-      for (let i = 0; i < data.signs.length; i++) {
-        const c = data.signs[i] < 0 ? colors.neg : colors.pos;
-        col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b;
-      }
-      geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      geo.computeVertexNormals();
-      const mat = new THREE.MeshLambertMaterial({
-        vertexColors: true, side: THREE.DoubleSide,
-        transparent: !p.solid, opacity: p.solid ? 1 : 0.16, depthWrite: p.solid
-      });
-      const mesh = new THREE.Mesh(geo, mat);
       const s = Shapes.radiusScale(o.n);
-      mesh.scale.set(s, s, s);
-      mesh.renderOrder = p.solid ? 0 : 1;
-      viewer.group.add(mesh);
       if (s > maxR) maxR = s;
+      wanted.add(p.id);
+      let it = v.items.get(p.id);
+      if (!it) {
+        it = { mesh: buildOrbitalMesh(p.id, colors), size: s };
+        it.mesh.scale.setScalar(s * 0.86);
+        v.items.set(p.id, it);
+        v.group.add(it.mesh);
+      }
+      it.mode = p.mode; it.to = MODE_OPACITY[p.mode]; it.leaving = false;
+      /* translucent surfaces draw after solid ones; larger n first so nested smaller orbitals stay on top */
+      it.mesh.renderOrder = p.mode === 'solid' ? 0 : 1 + (10 - o.n);
     });
-    viewer.maxR = maxR;
+    v.items.forEach(function (it, id) { if (!wanted.has(id)) { it.to = 0; it.leaving = true; } });
+    v.maxR = maxR;
     /* camera and axes are fixed to the largest shell in scope (n = 5), not to what is drawn,
        so a smaller n really looks smaller at the default zoom */
     const refR = Shapes.radiusScale(Math.max.apply(null, Chem.SHELLS));
-    viewer.fitDist = refR * 3.6;
-    viewer.dist = viewer.fitDist / DEFAULT_ZOOM;
-    buildAxes(refR * 1.25, colors.axis);
+    v.fitDist = refR * 3.6;
+    if (!v.framed) { v.dist = v.fitDist / DEFAULT_ZOOM; v.framed = true; }
+    const axisKey = colors.axis.getHexString();
+    if (v.axisKey !== axisKey) { buildAxes(refR * 1.25, colors.axis); v.axisKey = axisKey; }
     updateSizeReadout(plan);
-    viewer.dirty = false; viewer.requestRender();
+    playFade();
+  }
+
+  function playFade() {
+    const v = viewer;
+    if (v.fade) { v.fade.cancel(); v.fade = null; }
+    let changing = false;
+    v.items.forEach(function (it) {
+      const m = it.mesh.material;
+      it.from = m.opacity; it.fromSize = it.mesh.scale.x;
+      if (it.fromSize !== it.size) changing = true;
+      /* a surface has to blend while its opacity is changing */
+      if (it.from !== it.to) { changing = true; m.transparent = true; m.depthWrite = false; m.needsUpdate = true; }
+    });
+    /* nothing on stage differs (an electron was toggled, say): one repaint is enough */
+    if (!changing) { v.dirty = false; v.requestRender(); return; }
+    v.fade = Motion.tween({
+      easing: 'ui',
+      update: function (p) {
+        v.items.forEach(function (it) {
+          it.mesh.material.opacity = it.from + (it.to - it.from) * p;
+          it.mesh.scale.setScalar(it.fromSize + (it.size - it.fromSize) * p);
+        });
+        v.requestRender();
+      },
+      done: function () {
+        v.items.forEach(function (it, id) {
+          if (it.leaving) { v.group.remove(it.mesh); disposeObject(it.mesh); v.items.delete(id); return; }
+          const m = it.mesh.material, solid = it.mode === 'solid';
+          m.opacity = it.to; m.transparent = !solid; m.depthWrite = solid; m.needsUpdate = true;
+        });
+        v.fade = null;
+        v.dirty = false; v.requestRender();
+      }
+    });
+  }
+
+  /* the lobe colours are baked into each mesh, so a theme change rebuilds them in place */
+  function recolourViewer() {
+    if (!viewer) return;
+    if (viewer.fade) { viewer.fade.cancel(); viewer.fade = null; }
+    clearGroup(viewer.group);
+    viewer.items.clear();
+    updateViewer();
   }
 
   function updateLegend(plan) {
+    const hadFocus = legendEl.contains(document.activeElement) && document.activeElement.getAttribute('data-orbital');
     legendEl.textContent = '';
-    const head = el('p', 'legend-title', plan.length > 1 ? 'Drawn orbitals (' + plan.length + ')' : 'Drawn orbital');
+    const shown = plan.filter((p) => !p.hidden).length;
+    const head = el('p', 'legend-title', plan.length > 1
+      ? 'Drawn orbitals (' + shown + ' of ' + plan.length + ') — click one to hide or show it'
+      : 'Drawn orbital');
     legendEl.appendChild(head);
     plan.forEach(function (p) {
       const o = Chem.getOrbital(p.id);
-      const item = el('div', 'legend-item ' + (p.solid ? 'is-solid' : 'is-ghost'));
+      const kind = p.mode === 'solid' ? 'is-solid' : p.mode === 'ghost' ? 'is-ghost' : 'is-clear';
+      const item = el('button', 'legend-item ' + kind + (p.hidden ? ' is-hidden' : ''));
+      item.type = 'button';
+      item.setAttribute('data-orbital', p.id);
+      item.setAttribute('aria-pressed', p.hidden ? 'false' : 'true');
+      item.setAttribute('aria-label', cleanLabel(o) + ': ' + (p.hidden ? 'hidden, press to show' : 'shown, press to hide'));
+      item.addEventListener('click', function () {
+        if (state.hidden.has(p.id)) state.hidden.delete(p.id); else state.hidden.add(p.id);
+        updateViewer();
+      });
       const chips = el('span', 'legend-chips');
       const a = el('span', 'legend-chip is-pos'); a.style.background = 'var(--orbital-pos)';
       const b = el('span', 'legend-chip is-neg'); b.style.background = 'var(--orbital-neg)';
@@ -635,9 +727,16 @@
       chips.appendChild(a); chips.appendChild(b);
       item.appendChild(chips);
       item.appendChild(el('span', 'legend-name', cleanLabel(o)));
-      item.appendChild(el('span', 'legend-state', p.solid ? 'solid' : 'transparent'));
+      item.appendChild(el('span', 'legend-state', p.hidden ? 'hidden' : p.mode === 'solid' ? 'solid' : p.mode === 'ghost' ? 'transparent' : 'translucent'));
       legendEl.appendChild(item);
     });
+    if (hadFocus) {
+      const again = legendEl.querySelector('[data-orbital="' + hadFocus + '"]');
+      if (again) again.focus();
+    }
+    if (plan.length && plan.every((p) => p.hidden)) {
+      legendEl.appendChild(el('p', 'legend-empty', 'Every orbital is hidden. Click one above to show it again.'));
+    }
     const key = el('p', 'legend-sign');
     const kp = el('span', 'legend-chip is-pos'); kp.style.background = 'var(--orbital-pos)';
     const kn = el('span', 'legend-chip is-neg'); kn.style.background = 'var(--orbital-neg)';
@@ -649,8 +748,8 @@
   /* ---------------- slicers & hint ---------------- */
   const HINTS = {
     orbital: 'Click a box to see one orbital; a subshell label or n tag switches level.',
-    subshell: 'Click a box or a subshell label: the whole subshell is drawn, and the box you pick stays solid while its siblings turn transparent.',
-    shell: 'Click any box or an n tag: every orbital in that shell is drawn.'
+    subshell: 'Click a box or a subshell label: the whole subshell is drawn translucent; a box you pick stays solid while its siblings turn transparent.',
+    shell: 'Click any box or an n tag: every orbital in that shell is drawn translucent so you can see inside. Click an orbital under the 3-D view to hide or show it.'
   };
 
   function renderAll() {
@@ -747,9 +846,20 @@
 
   $('btn-reset-view').addEventListener('click', function () {
     if (!viewer) return;
-    viewer.azimuth = DEFAULT_VIEW.azimuth; viewer.polar = DEFAULT_VIEW.polar;
-    viewer.dist = viewer.fitDist / DEFAULT_ZOOM;
-    viewer.requestRender();
+    const v = viewer, a0 = v.azimuth, p0 = v.polar, d0 = v.dist, d1 = v.fitDist / DEFAULT_ZOOM;
+    /* swing back the short way round */
+    let da = (DEFAULT_VIEW.azimuth - a0) % (2 * Math.PI);
+    if (da > Math.PI) da -= 2 * Math.PI; else if (da < -Math.PI) da += 2 * Math.PI;
+    if (v.camTween) v.camTween.cancel();
+    v.camTween = Motion.tween({
+      update: function (p) {
+        v.azimuth = a0 + da * p;
+        v.polar = p0 + (DEFAULT_VIEW.polar - p0) * p;
+        v.dist = d0 + (d1 - d0) * p;
+        v.requestRender();
+      },
+      done: function () { v.azimuth = DEFAULT_VIEW.azimuth; v.camTween = null; }
+    });
   });
 
   const elementSelect = $('element-select');
@@ -781,13 +891,10 @@
   // theme changes recolour the 3-D lobes
   new MutationObserver(function () {
     state.theme = root.getAttribute('data-theme') || 'light';
-    if (viewer) {
-      const keep = { a: viewer.azimuth, p: viewer.polar, d: viewer.dist };
-      updateViewer();
-      viewer.azimuth = keep.a; viewer.polar = keep.p; viewer.dist = keep.d;
-      viewer.requestRender();
-    }
+    recolourViewer();
   }).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  /* ...and so does the OS flipping between light and dark while no explicit choice is stored */
+  try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolourViewer); } catch (e) { /* older browser */ }
 
   /* ---------------- boot ---------------- */
   buildDiagram();
