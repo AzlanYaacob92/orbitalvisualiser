@@ -79,7 +79,9 @@
     anchor: '2px',            // the single orbital that anchors re-resolution when mode changes
     lastElectron: null,       // {orbital, spin, removed}
     message: '',              // transient error (e.g. 54 cap)
-    loadedZ: null
+    loadedZ: null,
+    hidden: new Set(),        // orbitals switched off via the legend; cleared whenever the selection changes
+    hiddenKey: ''
   };
 
   /* ---------------- selection logic ---------------- */
@@ -569,20 +571,29 @@
     return c[oid];
   }
 
-  /* which orbitals are drawn, solid or ghost, per the contract */
+  /* How each selected orbital is drawn:
+       solid - a lone orbital, or the orbital picked inside a subshell view;
+       ghost - the siblings of a picked orbital (faint);
+       clear - several orbitals with nothing picked (shell, or a whole subshell): translucent,
+               so the orbitals nested inside one another can all be seen.
+     p.hidden marks orbitals the student switched off in the legend. */
   function drawPlan() {
     const ids = selectedOrbitalIds();
-    const plan = ids.map((id) => ({ id: id, solid: true }));
-    if (state.selection.level === 'subshell' && state.focusOrbital && ids.indexOf(state.focusOrbital) >= 0) {
-      plan.forEach((p) => { p.solid = p.id === state.focusOrbital; });
-    }
-    return plan;
+    const key = state.selection.level + ':' + state.selection.id;
+    if (state.hiddenKey !== key) { state.hidden.clear(); state.hiddenKey = key; }
+    const picked = state.selection.level === 'subshell' && state.focusOrbital && ids.indexOf(state.focusOrbital) >= 0;
+    return ids.map((id) => ({
+      id: id,
+      mode: ids.length === 1 ? 'solid' : picked ? (id === state.focusOrbital ? 'solid' : 'ghost') : 'clear',
+      hidden: state.hidden.has(id)
+    }));
   }
 
   function updateViewer() {
-    const plan = drawPlan();
-    updateLegend(plan);
+    const allPlan = drawPlan();
+    updateLegend(allPlan);
     if (!viewer) return;
+    const plan = allPlan.filter((p) => !p.hidden);
     const colors = themeColors();
     clearGroup(viewer.group);
     let maxR = 0.5;
@@ -599,14 +610,16 @@
       }
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
       geo.computeVertexNormals();
+      const solid = p.mode === 'solid';
       const mat = new THREE.MeshLambertMaterial({
         vertexColors: true, side: THREE.DoubleSide,
-        transparent: !p.solid, opacity: p.solid ? 1 : 0.16, depthWrite: p.solid
+        transparent: !solid, opacity: solid ? 1 : p.mode === 'clear' ? 0.32 : 0.16, depthWrite: solid
       });
       const mesh = new THREE.Mesh(geo, mat);
       const s = Shapes.radiusScale(o.n);
       mesh.scale.set(s, s, s);
-      mesh.renderOrder = p.solid ? 0 : 1;
+      /* translucent surfaces draw after solid ones; larger n first so nested smaller orbitals stay on top */
+      mesh.renderOrder = solid ? 0 : 1 + (10 - o.n);
       viewer.group.add(mesh);
       if (s > maxR) maxR = s;
     });
@@ -622,12 +635,25 @@
   }
 
   function updateLegend(plan) {
+    const hadFocus = legendEl.contains(document.activeElement) && document.activeElement.getAttribute('data-orbital');
     legendEl.textContent = '';
-    const head = el('p', 'legend-title', plan.length > 1 ? 'Drawn orbitals (' + plan.length + ')' : 'Drawn orbital');
+    const shown = plan.filter((p) => !p.hidden).length;
+    const head = el('p', 'legend-title', plan.length > 1
+      ? 'Drawn orbitals (' + shown + ' of ' + plan.length + ') — click one to hide or show it'
+      : 'Drawn orbital');
     legendEl.appendChild(head);
     plan.forEach(function (p) {
       const o = Chem.getOrbital(p.id);
-      const item = el('div', 'legend-item ' + (p.solid ? 'is-solid' : 'is-ghost'));
+      const kind = p.mode === 'solid' ? 'is-solid' : p.mode === 'ghost' ? 'is-ghost' : 'is-clear';
+      const item = el('button', 'legend-item ' + kind + (p.hidden ? ' is-hidden' : ''));
+      item.type = 'button';
+      item.setAttribute('data-orbital', p.id);
+      item.setAttribute('aria-pressed', p.hidden ? 'false' : 'true');
+      item.setAttribute('aria-label', cleanLabel(o) + ': ' + (p.hidden ? 'hidden, press to show' : 'shown, press to hide'));
+      item.addEventListener('click', function () {
+        if (state.hidden.has(p.id)) state.hidden.delete(p.id); else state.hidden.add(p.id);
+        updateViewer();
+      });
       const chips = el('span', 'legend-chips');
       const a = el('span', 'legend-chip is-pos'); a.style.background = 'var(--orbital-pos)';
       const b = el('span', 'legend-chip is-neg'); b.style.background = 'var(--orbital-neg)';
@@ -635,9 +661,16 @@
       chips.appendChild(a); chips.appendChild(b);
       item.appendChild(chips);
       item.appendChild(el('span', 'legend-name', cleanLabel(o)));
-      item.appendChild(el('span', 'legend-state', p.solid ? 'solid' : 'transparent'));
+      item.appendChild(el('span', 'legend-state', p.hidden ? 'hidden' : p.mode === 'solid' ? 'solid' : p.mode === 'ghost' ? 'transparent' : 'translucent'));
       legendEl.appendChild(item);
     });
+    if (hadFocus) {
+      const again = legendEl.querySelector('[data-orbital="' + hadFocus + '"]');
+      if (again) again.focus();
+    }
+    if (plan.length && plan.every((p) => p.hidden)) {
+      legendEl.appendChild(el('p', 'legend-empty', 'Every orbital is hidden. Click one above to show it again.'));
+    }
     const key = el('p', 'legend-sign');
     const kp = el('span', 'legend-chip is-pos'); kp.style.background = 'var(--orbital-pos)';
     const kn = el('span', 'legend-chip is-neg'); kn.style.background = 'var(--orbital-neg)';
@@ -649,8 +682,8 @@
   /* ---------------- slicers & hint ---------------- */
   const HINTS = {
     orbital: 'Click a box to see one orbital; a subshell label or n tag switches level.',
-    subshell: 'Click a box or a subshell label: the whole subshell is drawn, and the box you pick stays solid while its siblings turn transparent.',
-    shell: 'Click any box or an n tag: every orbital in that shell is drawn.'
+    subshell: 'Click a box or a subshell label: the whole subshell is drawn translucent; a box you pick stays solid while its siblings turn transparent.',
+    shell: 'Click any box or an n tag: every orbital in that shell is drawn translucent so you can see inside. Click an orbital under the 3-D view to hide or show it.'
   };
 
   function renderAll() {

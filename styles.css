@@ -353,6 +353,13 @@ select option { background: var(--card); color: var(--ink); }
 }
 .legend-name { font-family: var(--font-display); font-weight: var(--w-semi); }
 .legend-state { font: var(--t-small); color: var(--muted); }
+button.legend-item { font-family: inherit; cursor: pointer; transition: background var(--dur-fast, .15s) var(--ease, ease), box-shadow var(--dur-fast, .15s) var(--ease, ease); }
+button.legend-item:hover { background: var(--primary-soft); box-shadow: var(--shadow-1); }
+button.legend-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.legend-item.is-hidden { border-style: dotted; border-color: var(--muted); background: transparent; color: var(--muted); }
+.legend-item.is-hidden .legend-name { text-decoration: line-through; }
+.legend-item.is-hidden .legend-chip { opacity: .3; }
+.legend-empty { flex: 1 1 100%; margin: 0; font: var(--t-small); color: var(--muted); }
 .legend-item.is-solid .legend-chip { opacity: 1; }
 .legend-item.is-ghost { border-style: dashed; border-color: var(--muted); background: transparent; }
 .legend-item.is-ghost .legend-chip {   /* hatched so ghost reads without colour */
