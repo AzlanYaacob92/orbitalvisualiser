@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chemculate Orbitals</title>
+  <script>
+    // Applied before the stylesheet loads so the page never flashes the
+    // wrong theme. Remembers the student's choice; falls back to their
+    // system preference the first time they visit.
+    (function () {
+      try {
+        var saved = localStorage.getItem('theme');
+        var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (e) { /* localStorage unavailable: default light styles apply */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+      <span id="theme-toggle-icon" aria-hidden="true">🌙</span>
+    </button>
+    <span class="eyebrow">Atomic Orbitals</span>
+    <h1 class="site-title">Chemculate Orbitals</h1>
+  </header>
+
+  <a class="back-link" href="https://azlanyaacob92.github.io/">← Chemculator home</a>
+
+  <main class="viz-layout">
+
+    <!-- ============ ENERGY DIAGRAM ============ -->
+    <section id="panel-diagram" class="card" aria-labelledby="diagram-heading">
+      <h2 id="diagram-heading" class="card-title">Orbital energy diagram</h2>
+      <div class="slice-bar">
+        <fieldset id="slice-mode">
+          <legend>Select by</legend>
+          <label><input type="radio" name="slice-mode" value="orbital" checked /> <span>Orbital</span></label>
+          <label><input type="radio" name="slice-mode" value="subshell" /> <span>Subshell</span></label>
+          <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
+        </fieldset>
+        <fieldset id="click-mode">
+          <legend>Clicking a box</legend>
+          <label><input type="radio" name="click-mode" value="explore" checked /> <span>Explore</span></label>
+          <label><input type="radio" name="click-mode" value="fill" /> <span>Fill electrons</span></label>
+        </fieldset>
+        <p class="slice-hint" id="slice-hint"></p>
+      </div>
+      <div id="energy-diagram"></div>
+    </section>
+
+    <!-- ============ 3-D VIEWER ============ -->
+    <section id="panel-viewer" class="card" aria-labelledby="viewer-heading">
+      <h2 id="viewer-heading" class="card-title">3-D shape</h2>
+      <div class="canvas-wrap">
+        <div id="orbital-canvas" role="img" aria-label="Interactive 3-D view of the selected orbitals. Drag to rotate, scroll or pinch to zoom."></div>
+        <div id="axis-key"></div>
+      </div>
+      <p class="viewer-hint">Drag to rotate · scroll or pinch to zoom</p>
+      <div id="viewer-legend" aria-live="polite"></div>
+      <button id="btn-reset-view" class="btn btn--ghost" type="button">Reset view</button>
+    </section>
+
+    <!-- ============ INFO ============ -->
+    <aside id="panel-info" class="card" aria-labelledby="selection-title">
+      <h2 id="selection-title" class="card-title"></h2>
+      <dl id="qn-panel">
+        <div class="qn-row"><dt>n <span class="qn-name">principal</span></dt><dd id="qn-n"></dd></div>
+        <div class="qn-row"><dt>l <span class="qn-name">angular momentum</span></dt><dd id="qn-l"></dd></div>
+        <div class="qn-row"><dt>mₗ <span class="qn-name">magnetic</span></dt><dd id="qn-ml"></dd></div>
+        <div class="qn-row"><dt>mₛ <span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
+      </dl>
+      <ul id="qn-rules"></ul>
+
+      <div id="config-panel">
+        <h3 class="card-subtitle">Fill with electrons</h3>
+        <p class="config-hint">In <strong>Fill electrons</strong> mode, click the left half of a box to add a spin-up electron, the right half for spin-down. Click an electron to remove it. (Keyboard: Enter adds, a third press removes.)</p>
+        <p id="electron-count" class="electron-count"></p>
+        <p id="config-notation" class="config-notation"></p>
+        <div id="config-status" role="status" aria-live="polite"></div>
+        <div class="element-row">
+          <label for="element-select">Load an element</label>
+          <select id="element-select" class="select"></select>
+          <button id="btn-load-element" class="btn btn--primary" type="button">Load</button>
+          <button id="btn-clear" class="btn btn--ghost" type="button">Clear</button>
+        </div>
+      </div>
+
+      <div id="simplifications">
+        <h3 class="card-subtitle">What this model simplifies</h3>
+        <ul>
+          <li>Only the <strong>angular shape</strong> is drawn. Radial nodes (for example inside 2s, 3s and 3p) are not shown.</li>
+          <li>These are the <strong>real</strong> orbitals (pₓ, p_y, p_z, d_xy …), which are combinations of the complex orbitals labelled by mₗ. Each real orbital is tied to an mₗ value for bookkeeping only.</li>
+          <li>Orbital size grows with n as n<sup>0.75</sup>. Real average radii grow roughly as n², so this keeps the order of sizes but compresses the ratios.</li>
+          <li>The vertical energy axis is <strong>schematic</strong>: the order is right, the gaps are not to scale.</li>
+          <li>Scope: 1s to 5p (up to xenon, 54 electrons). No f orbitals.</li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="site-footer">
+    <p>Quantum numbers, energy order and orbital shapes on one linked screen</p>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="chemistry.js"></script>
+  <script src="shapes.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
