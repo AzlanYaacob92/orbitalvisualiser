@@ -349,6 +349,8 @@
   let viewer = null;   // set if WebGL works
 
   const DEFAULT_VIEW = { azimuth: Math.PI / 4, polar: 1.1 };
+  /* default zoom, relative to the tight auto-fit (×1.00 = largest drawn orbital fills the view) */
+  const DEFAULT_ZOOM = 0.7;
 
   function cssVar(name, fallback) {
     try {
@@ -550,7 +552,7 @@
     const txt = '×' + z.toFixed(2);
     const zEl = $('zoom-readout'), nEl = $('zoom-note');
     if (zEl.textContent !== txt) zEl.textContent = txt;
-    const note = Math.abs(z - 1) < 0.005 ? 'default (auto-fit)' : (z > 1 ? 'zoomed in' : 'zoomed out');
+    const note = Math.abs(z - DEFAULT_ZOOM) < 0.005 ? 'default' : (z > DEFAULT_ZOOM ? 'zoomed in' : 'zoomed out');
     if (nEl.textContent !== note) nEl.textContent = note;
   }
 
@@ -616,7 +618,7 @@
     });
     viewer.maxR = maxR;
     viewer.fitDist = maxR * 3.6;
-    viewer.dist = viewer.fitDist;
+    viewer.dist = viewer.fitDist / DEFAULT_ZOOM;
     buildAxes(maxR * 1.25, colors.axis);
     updateSizeReadout(plan);
     viewer.dirty = false; viewer.requestRender();
@@ -749,7 +751,7 @@
   $('btn-reset-view').addEventListener('click', function () {
     if (!viewer) return;
     viewer.azimuth = DEFAULT_VIEW.azimuth; viewer.polar = DEFAULT_VIEW.polar;
-    viewer.dist = viewer.fitDist;
+    viewer.dist = viewer.fitDist / DEFAULT_ZOOM;
     viewer.requestRender();
   });
 
