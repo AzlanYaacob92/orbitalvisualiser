@@ -374,7 +374,7 @@
   }
 
   function initViewer() {
-    if (typeof THREE === 'undefined') { fallback('The 3-D library (three.js) could not be loaded. Check your connection and reload.'); return; }
+    if (typeof THREE === 'undefined') { fallback('The 3-D library (three.js) could not be loaded, so the 3-D view cannot be shown. The diagram and quantum numbers still work.'); return; }
     if (mount.clientHeight < 100) mount.style.height = '360px';
     let renderer;
     try {

@@ -16,7 +16,7 @@ ordering, its shape/size and where an electron sits, using one linked screen.
 
 Both `chemistry.js` and `shapes.js` expose a browser global AND
 `module.exports` (so `node test-chemistry.js` works). Script order in
-index.html: three.js (cdnjs, pinned, e.g. r128) → chemistry.js → shapes.js → app.js.
+index.html: three.js (r128, vendored as vendor/three.min.js) → chemistry.js → shapes.js → motion.js → app.js.
 
 ## Scope (fixed by the brief)
 
