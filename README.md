@@ -1,4 +1,4 @@
-﻿# Chemculate Orbitals
+# Chemulate Orbitals
 
 Interactive atomic-orbital visualiser for 1s to 5p (27 orbitals, 54 electrons, up to Xe).
 

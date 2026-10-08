@@ -1,5 +1,5 @@
 'use strict';
-/* Chemculate Orbitals: UI logic + Three.js viewer.
+/* Chemulate Orbitals: UI logic + Three.js viewer.
 
    Hints for styles.css (owned by the Style agent):
    - CSS custom properties read at runtime by the 3-D viewer (define per theme):
