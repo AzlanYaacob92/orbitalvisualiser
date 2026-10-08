@@ -17,18 +17,25 @@
 
   /* ---------------- theme toggle ---------------- */
   const root = document.documentElement;
+  // effective theme: explicit data-theme, else the OS preference
+  function isDark() {
+    const t = root.getAttribute('data-theme');
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
   (function () {
     const btn = document.getElementById('theme-toggle');
     const icon = document.getElementById('theme-toggle-icon');
     if (!btn) return;
     function reflect() {
-      const dark = root.getAttribute('data-theme') === 'dark';
+      const dark = isDark();
       btn.setAttribute('aria-pressed', String(dark));
       btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
       if (icon) icon.textContent = dark ? '☀️' : '🌙';
     }
     btn.addEventListener('click', function () {
-      const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      const next = isDark() ? 'light' : 'dark';
       root.setAttribute('data-theme', next);
       try { localStorage.setItem('theme', next); } catch (e) { /* ignore */ }
       reflect();
@@ -350,7 +357,7 @@
     } catch (e) { return fallback; }
   }
   function themeColors() {
-    const dark = root.getAttribute('data-theme') === 'dark';
+    const dark = isDark();
     const text = getComputedStyle(document.body).color || (dark ? '#e6e6e6' : '#222222');
     return {
       pos: new THREE.Color(cssVar('--orbital-pos', dark ? '#4da3ff' : '#1f6feb')),
@@ -390,6 +397,7 @@
     scene.add(v.group); scene.add(v.axes);
 
     v.requestRender = function () {
+      updateZoomReadout();
       if (v.dirty) return;
       v.dirty = true;
       requestAnimationFrame(v.draw);
@@ -400,6 +408,7 @@
       camera.position.set(v.dist * sp * Math.cos(v.azimuth), v.dist * sp * Math.sin(v.azimuth), v.dist * Math.cos(v.polar));
       camera.lookAt(0, 0, 0);
       renderer.render(scene, camera);
+      updateZoomReadout();
     };
     function resize() {
       const w = mount.clientWidth, h = mount.clientHeight;
@@ -510,6 +519,52 @@
       sp.position.copy(dir.clone().multiplyScalar(L * 1.14));
       viewer.axes.add(sp);
     });
+    addAxisTicks(L, color);
+  }
+
+  /* axis scale: one tick per unit, 1 unit = size of the n=1 orbital (radiusScale(1)) */
+  function addAxisTicks(L, color) {
+    const unit = Shapes.radiusScale(1);
+    const t = L * 0.025;
+    const perp = { x: [0, 1, 0], y: [1, 0, 0], z: [1, 0, 0] };
+    const dirs = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+    Object.keys(dirs).forEach(function (k) {
+      const d = new THREE.Vector3().fromArray(dirs[k]);
+      const p = new THREE.Vector3().fromArray(perp[k]);
+      for (let i = 1; i * unit <= L; i++) {
+        const c = d.clone().multiplyScalar(i * unit);
+        const geo = new THREE.BufferGeometry().setFromPoints([c.clone().addScaledVector(p, -t * 1.6), c.clone().addScaledVector(p, t * 1.6)]);
+        viewer.axes.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color })));
+        if (k === 'x' || i % 2 === 1) {
+          const sp = labelSprite(String(i), color, L * 0.14);
+          sp.position.copy(c.clone().addScaledVector(p, -t * 4));
+          sp.material.opacity = 0.95;
+          viewer.axes.add(sp);
+        }
+      }
+    });
+  }
+
+  function updateZoomReadout() {
+    const z = viewer.fitDist / viewer.dist;
+    const txt = '×' + z.toFixed(2);
+    const zEl = $('zoom-readout'), nEl = $('zoom-note');
+    if (zEl.textContent !== txt) zEl.textContent = txt;
+    const note = Math.abs(z - 1) < 0.005 ? 'default (auto-fit)' : (z > 1 ? 'zoomed in' : 'zoomed out');
+    if (nEl.textContent !== note) nEl.textContent = note;
+  }
+
+  function updateSizeReadout(plan) {
+    const seen = {}, parts = [];
+    plan.forEach(function (p) {
+      const o = Chem.getOrbital(p.id);
+      if (seen[o.n]) return;
+      seen[o.n] = true;
+      const shown = Shapes.radiusScale(o.n) / Shapes.radiusScale(1);
+      const real = o.n * o.n;
+      parts.push('n=' + o.n + ': ×' + shown.toFixed(2) + ' (true ≈ ×' + real + ')');
+    });
+    $('size-readout').textContent = parts.join(' · ');
   }
 
   function meshData(oid) {
@@ -563,6 +618,7 @@
     viewer.fitDist = maxR * 3.6;
     viewer.dist = viewer.fitDist;
     buildAxes(maxR * 1.25, colors.axis);
+    updateSizeReadout(plan);
     viewer.dirty = false; viewer.requestRender();
   }
 

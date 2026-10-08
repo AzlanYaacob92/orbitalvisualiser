@@ -5,17 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Chemulate Orbitals</title>
   <script>
-    // Applied before the stylesheet loads so the page never flashes the
-    // wrong theme. Remembers the student's choice; falls back to their
-    // system preference the first time they visit.
-    (function () {
-      try {
-        var saved = localStorage.getItem('theme');
-        var theme = saved || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        document.documentElement.setAttribute('data-theme', theme);
-      } catch (e) { /* localStorage unavailable: default light styles apply */ }
-    })();
+    try{var s=localStorage.getItem('theme'); if(s==='dark'||s==='light') document.documentElement.setAttribute('data-theme', s);}catch(e){}
   </script>
+  <link rel="stylesheet" href="design-system.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -54,6 +46,11 @@
     <!-- ============ 3-D VIEWER ============ -->
     <section id="panel-viewer" class="card" aria-labelledby="viewer-heading">
       <h2 id="viewer-heading" class="card-title">3-D shape</h2>
+      <div id="scale-readout" class="scale-readout" role="status" aria-live="off">
+        <p class="scale-row"><span class="scale-name">Zoom</span> <span id="zoom-readout" class="scale-value">×1.00</span> <span id="zoom-note" class="scale-note">default (auto-fit)</span></p>
+        <p class="scale-row"><span class="scale-name">Size vs 1s</span> <span id="size-readout" class="scale-value"></span></p>
+        <p class="scale-row scale-foot">Axis ticks: 1 unit = the size of the 1s orbital. Sizes follow n<sup>0.75</sup> so 5p still fits; the true size grows as n².</p>
+      </div>
       <div class="canvas-wrap">
         <div id="orbital-canvas" role="img" aria-label="Interactive 3-D view of the selected orbitals. Drag to rotate, scroll or pinch to zoom."></div>
         <div id="axis-key"></div>
