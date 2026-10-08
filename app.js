@@ -349,7 +349,7 @@
   let viewer = null;   // set if WebGL works
 
   const DEFAULT_VIEW = { azimuth: Math.PI / 4, polar: 1.1 };
-  /* default zoom, relative to the tight auto-fit (×1.00 = largest drawn orbital fills the view) */
+  /* default zoom, relative to the fit for the largest shell, n = 5 (×1.00 = a 5-shell orbital fills the view) */
   const DEFAULT_ZOOM = 0.7;
 
   function cssVar(name, fallback) {
@@ -611,9 +611,12 @@
       if (s > maxR) maxR = s;
     });
     viewer.maxR = maxR;
-    viewer.fitDist = maxR * 3.6;
+    /* camera and axes are fixed to the largest shell in scope (n = 5), not to what is drawn,
+       so a smaller n really looks smaller at the default zoom */
+    const refR = Shapes.radiusScale(Math.max.apply(null, Chem.SHELLS));
+    viewer.fitDist = refR * 3.6;
     viewer.dist = viewer.fitDist / DEFAULT_ZOOM;
-    buildAxes(maxR * 1.25, colors.axis);
+    buildAxes(refR * 1.25, colors.axis);
     updateSizeReadout(plan);
     viewer.dirty = false; viewer.requestRender();
   }
