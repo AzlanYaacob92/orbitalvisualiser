@@ -108,9 +108,29 @@
     'Rb Rubidium,Sr Strontium,Y Yttrium,Zr Zirconium,Nb Niobium,Mo Molybdenum,Tc Technetium,Ru Ruthenium,' +
     'Rh Rhodium,Pd Palladium,Ag Silver,Cd Cadmium,In Indium,Sn Tin,Sb Antimony,Te Tellurium,I Iodine,Xe Xenon')
     .split(',');
+  /* Position in the periodic table (IUPAC group numbers 1-18).
+   *   period  1..5 (first Z of each period is in PERIOD_STARTS)
+   *   group   1..18; H is group 1, He is group 18 (with the noble gases)
+   *   block   's' | 'p' | 'd' by the subshell that is filling.  Helium is the one convention call:
+   *           its configuration is 1s² (so s-block), yet its group is 18 (the p-block column).
+   *           Zn and Cd (group 12) are counted in the d-block, as IUPAC does.
+   * Periods 2 and 3 skip the d columns (positions 0-1 -> groups 1-2, positions 2-7 -> groups 13-18);
+   * periods 4 and 5 run through all 18 groups (positions 0-1 s, 2-11 d, 12-17 p). */
+  var PERIOD_STARTS = [1, 3, 11, 19, 37];
+  function placeOf(Z) {
+    var period = 1, i;
+    for (i = 0; i < PERIOD_STARTS.length; i++) if (Z >= PERIOD_STARTS[i]) period = i + 1;
+    var pos = Z - PERIOD_STARTS[period - 1];
+    var group, block;
+    if (period === 1) { group = pos === 0 ? 1 : 18; block = 's'; }
+    else if (period <= 3) { group = pos < 2 ? pos + 1 : pos + 11; block = pos < 2 ? 's' : 'p'; }
+    else { group = pos + 1; block = pos < 2 ? 's' : (pos < 12 ? 'd' : 'p'); }
+    return { period: period, group: group, block: block };
+  }
+
   var ELEMENTS = NAMES.map(function (s, i) {
-    var p = s.split(' ');
-    return { Z: i + 1, symbol: p[0], name: p[1] };
+    var p = s.split(' '), pl = placeOf(i + 1);
+    return { Z: i + 1, symbol: p[0], name: p[1], period: pl.period, group: pl.group, block: pl.block };
   });
   function elementOf(Z) { return ELEMENTS[Z - 1] || null; }
 
@@ -125,25 +145,39 @@
     return counts;
   }
 
-  // Honest wording: these are measured (spectroscopic) ground states.  "Half/full shell
-  // stability" is a rule of thumb about exchange energy and repulsion, not a law.
+  // The eight elements in Z = 1-54 whose measured (spectroscopic, NIST) ground state differs from
+  // the simple filling order: Cr, Cu, Nb, Mo, Ru, Rh, Pd, Ag.  Everything else follows Madelung.
+  //   reason  one or two sentences for the status line / info panel
+  //   note    one short line for hover text in the element selector
+  // Honest wording: these are measured results.  "Half-filled / filled subshell" is a rationale
+  // for Cr, Mo, Cu, Ag (it helps, via exchange energy and electron repulsion) but never a complete
+  // explanation, and it does not apply at all to Nb, Ru, Rh, Pd, which are empirical outcomes of
+  // a small 4d/5s energy gap and electron-electron repulsion.
   var ANOMALY_DEFS = {
     24: { set: { '4s': 1, '3d': 5 },
-      reason: 'Observed ground state. The 4s and 3d energies are very close, and moving one electron into 3d gives a half-filled 3d subshell (five parallel spins), which lowers the total electron-electron repulsion/exchange balance enough to win. "Half-filled is stable" is a useful rule of thumb, not an exact law.' },
+      reason: 'Measured ground state. The 4s and 3d energies are close, and moving one electron into 3d gives a half-filled 3d subshell (five parallel spins) with lower total energy (exchange and repulsion effects). “Half-filled is stable” is a rationale, not a complete explanation.',
+      note: 'Half-filled 3d is a helpful rationale, not a complete explanation.' },
     29: { set: { '4s': 1, '3d': 10 },
-      reason: 'Observed ground state. With 4s and 3d so close in energy, a completely filled 3d subshell (3d¹⁰) plus one 4s electron has lower total energy than 4s² 3d⁹. A full subshell is a helpful rule of thumb here, but the real cause is the detailed balance of repulsion and orbital energies.' },
+      reason: 'Measured ground state. The 4s and 3d energies are close, and a filled 3d subshell with one 4s electron has lower total energy than 4s² 3d⁹. “Filled subshell is stable” is a rationale, not a complete explanation.',
+      note: 'Filled 3d is a helpful rationale, not a complete explanation.' },
     41: { set: { '5s': 1, '4d': 4 },
-      reason: 'Measured result. In the 4d series the 5s and 4d energies are very close, so one 5s electron moves to 4d. There is no neat half-full or full subshell to point to, so this one is best learned as an empirical exception.' },
+      reason: 'Measured result. The 5s and 4d energies are close, and electron repulsion tips the balance to 5s¹ 4d⁴. No half-filled or full subshell is involved, so “half-filled is stable” does not explain it.',
+      note: 'Empirical: close 5s/4d energies; no half-filled or full subshell.' },
     42: { set: { '5s': 1, '4d': 5 },
-      reason: 'Observed ground state. Same pattern as chromium: the 5s and 4d energies are close, and 5s¹ 4d⁵ gives a half-filled 4d subshell. "Half-filled is stable" is a rule of thumb, not an exact explanation.' },
+      reason: 'Measured ground state. As with chromium, 5s¹ 4d⁵ gives a half-filled 4d subshell (five parallel spins) and lower total energy than 5s² 4d⁴. “Half-filled is stable” is a rationale, not a complete explanation.',
+      note: 'Like Cr: half-filled 4d is a rationale, not a complete explanation.' },
     44: { set: { '5s': 1, '4d': 7 },
-      reason: 'Measured result. The small 5s/4d energy gap lets one electron move into 4d. It does not give a half-filled or full subshell, so it is an empirical exception rather than something a simple rule predicts.' },
+      reason: 'Measured result. The 5s and 4d energies are close, and electron repulsion favours 5s¹ 4d⁷. No half-filled or full subshell is involved, so simple rules do not predict it.',
+      note: 'Empirical: close 5s/4d energies; no half-filled or full subshell.' },
     45: { set: { '5s': 1, '4d': 8 },
-      reason: 'Measured result. The small 5s/4d energy gap lets one electron move into 4d. No half-filled or full subshell is reached, so this is an empirical exception that simple rules do not predict.' },
+      reason: 'Measured result. The 5s and 4d energies are close, and electron repulsion favours 5s¹ 4d⁸. No half-filled or full subshell is involved, so simple rules do not predict it.',
+      note: 'Empirical: close 5s/4d energies; no half-filled or full subshell.' },
     46: { set: { '5s': 0, '4d': 10 },
-      reason: 'Measured result: palladium is the only atom in this range with no outer s electron. A full 4d¹⁰ subshell is lower in energy than 5s² 4d⁸, but that is the experimental finding, not something "full shells are stable" proves by itself.' },
+      reason: 'Measured result: palladium is the only element from Rb to Xe with no 5s electron. A filled 4d subshell fits, but “filled is stable” alone does not predict it. It is an experimental result.',
+      note: 'Empirical: the only element from Rb to Xe with an empty 5s.' },
     47: { set: { '5s': 1, '4d': 10 },
-      reason: 'Observed ground state. As with copper, a full 4d¹⁰ subshell plus one 5s electron has lower total energy than 5s² 4d⁹. Full subshells are a helpful rule of thumb, not a complete explanation.' }
+      reason: 'Measured ground state. As with copper, a filled 4d subshell with one 5s electron has lower total energy than 5s² 4d⁹. “Filled subshell is stable” is a rationale, not a complete explanation.',
+      note: 'Like Cu: filled 4d is a rationale, not a complete explanation.' }
   };
 
   function configCounts(Z) {
@@ -206,7 +240,10 @@
     return r;
   }
 
-  // Hund-style filling: one electron (spin up) in each orbital first, then pair with spin down.
+  // Hund's rule filling inside each subshell: one electron (spin up) in each orbital first, then the
+  // spin-down partners.  Both passes go through sub.orbitalIds in order, which is the left-to-right
+  // box order of the diagram (p: px py pz; d: dz² dxz dyz dx²−y² dxy), so the arrows come out as in a
+  // textbook: N 2p ↑ ↑ ↑; O 2p ↑↓ ↑ ↑; Fe 3d ↑↓ ↑ ↑ ↑ ↑; Cr 3d ↑ ↑ ↑ ↑ ↑ (and 4s ↑).
   function countsToOccupancy(counts) {
     var occ = emptyOccupancy();
     SUBSHELLS.forEach(function (s) {
@@ -229,7 +266,46 @@
       actual: formatConfig(act, { shorthand: true, superscript: false }),
       expectedPretty: formatConfig(e, { shorthand: true }),
       actualPretty: formatConfig(act, { shorthand: true }),
-      reason: a.reason
+      reason: a.reason,
+      note: a.note
+    };
+  }
+
+  /* elementDetails(Z): everything the selector and the info panel need about one element, or null
+   * when Z is not 1..54.  Configurations are written in the diagram's (filling) order, e.g. Fe is
+   * "[Ar] 4s² 3d⁶" (many textbooks write the same thing in n order, "[Ar] 3d⁶ 4s²").
+   *   anomaly   null, or { expected, actual (superscript text), expectedPlain, actualPlain (digits),
+   *             reason, note }
+   *   valenceNote  short, correct remark (outer-shell electrons for s/p, ion behaviour for d) */
+  function valenceNoteFor(Z, el, counts) {
+    var n = el.period;
+    if (el.block === 'd') {
+      if (Z === 46) return 'Transition-metal ions lose s electrons before d electrons, but palladium has no 5s electron to lose: Pd²⁺ is [Kr] 4d⁸.';
+      return n + 's fills before ' + (n - 1) + 'd in the neutral atom, but positive ions of this metal lose the ' + n + 's electrons first.';
+    }
+    var sCount = counts[n + 's'] || 0, pCount = counts[n + 'p'] || 0;
+    var valence = sCount + pCount;
+    var cfg = n + 's' + sup(sCount) + (pCount ? ' ' + n + 'p' + sup(pCount) : '');
+    var s = 'Valence electrons: ' + valence + ' (' + cfg + ').';
+    if (Z === 2) s = 'Helium sits in group 18 with the noble gases, but its electrons are in 1s only, so it is counted as s-block. ' + s;
+    return s;
+  }
+
+  function elementDetails(Z) {
+    if (typeof Z !== 'number' || Z !== Math.round(Z) || !(Z >= 1 && Z <= MAX_ELECTRONS)) return null;
+    var el = elementOf(Z), counts = configCounts(Z), an = anomalyOf(Z);
+    return {
+      Z: Z, symbol: el.symbol, name: el.name,
+      period: el.period, group: el.group, block: el.block,
+      electrons: Z,
+      configuration: formatConfig(counts),
+      shorthand: formatConfig(counts, { shorthand: true }),
+      anomaly: an && {
+        expected: an.expectedPretty, actual: an.actualPretty,
+        expectedPlain: an.expected, actualPlain: an.actual,
+        reason: an.reason, note: an.note
+      },
+      valenceNote: valenceNoteFor(Z, el, counts)
     };
   }
 
@@ -314,8 +390,8 @@
     var excusedByAnomaly = matchesElement !== null && anomaly !== null;
     if (aufbau.length && !excusedByAnomaly) {
       aufbau.forEach(function (p) {
-        var msg = 'Aufbau principle: ' + p.hi.id + ' has electrons but ' + p.lo.id + ' (lower in energy) is not full yet. Fill ' + p.lo.id + ' first.';
-        if (p.lo.l === 0 && p.hi.l === 2) msg += ' (Neutral atoms follow this order; a few real exceptions exist, and positive ions lose their s electrons first.)';
+        var msg = 'Aufbau principle: ' + p.hi.id + ' has electrons but ' + p.lo.id + ' (earlier in the filling order) is not full yet. Fill ' + p.lo.id + ' first.';
+        if (p.lo.l === 0 && p.hi.l === 2) msg += ' (This is the filling order of neutral atoms; a few real atoms differ, and positive ions of transition metals lose their s electrons first.)';
         violations.push({ rule: 'aufbau', message: msg });
       });
     }
@@ -389,8 +465,8 @@
     shellCapacity: 'A full shell holds 2n² electrons (n² orbitals × 2 spins).',
     subshellCapacity: 'A full subshell holds 2(2l + 1) electrons.',
     pauli: 'Pauli exclusion: no two electrons in an atom share the same four quantum numbers (n, l, m_{l}, m_{s}).',
-    hund: 'Hund’s rule: orbitals of the same subshell fill one electron each (same spin) before any pair up.',
-    aufbau: 'Aufbau/Madelung: fill subshells in order of increasing n + l, and for equal n + l the lower n first.',
+    hund: 'Hund’s rule: within a subshell, electrons go into separate orbitals with the same spin before any orbital gets a second electron.',
+    aufbau: 'Aufbau/Madelung: neutral atoms fill subshells in order of increasing n + l, and for equal n + l the lower n first. It is a good rule of thumb with a few real exceptions (e.g. Cr, Cu).',
     shapeNote: 'Each surface is the angular probability distribution |Y|² (boundary-surface style); the + / − colours show the sign (phase) of the wavefunction Y. Radial nodes are ignored.',
     realOrbitals: realOrbitalsText([1, 2])
   };
@@ -424,7 +500,7 @@
       conv.push(tags(2));
     }
     return 'The drawn orbitals are the REAL combinations (' + eg.join(', ') + ' …). ' + mix.join('; ') +
-      ', so the m_{l} tag on a box is a labelling convention (here: ' + conv.join('; ') + '), not a literal property of that shape.';
+      ', so for these shapes the m_{l} tag on a box is a labelling convention (here: ' + conv.join('; ') + '), not a literal property of the shape.';
   }
 
   /* describeSelection(level, id): what is selected and why those quantum numbers are allowed.
@@ -471,7 +547,7 @@
       X.n.push('A full shell holds 2n² = ' + shellTotal + ' electrons; this subshell holds up to ' + sub.capacity + ' of them.');
       X.l.push('l = ' + L + ' (' + sub.letter + '): ' + allowed);
       X.l.push('A subshell is the set of orbitals with the same n and l; a full ' + sub.id + ' holds 2(2l + 1) = ' + sub.capacity + ' electrons.');
-      X.ml.push(mlRule + ': ' + sub.letter + ' has ' + (2 * L + 1) + ' orbital' + (L ? 's' : '') + ' here (m_{l} = ' + mls.map(signed).join(', ') + ')' + (L ? ', all of equal energy.' : '.'));
+      X.ml.push(mlRule + ': ' + sub.letter + ' has ' + (2 * L + 1) + ' orbital' + (L ? 's' : '') + ' here (m_{l} = ' + mls.map(signed).join(', ') + ')' + (L ? ', all of equal energy in a free atom.' : '.'));
     } else {
       var orb = orbs[0], oL = orb.l;
       title = 'Orbital ' + orb.label;
@@ -480,7 +556,7 @@
       X.l.push('l = ' + oL + ' (' + LETTERS[oL] + '): ' + allowed);
       X.l.push('Orbitals with the same n and l form a subshell: ' + orb.subshellId + ' has ' + (2 * oL + 1) + ' orbital' + (oL ? 's' : '') + ' and holds 2(2l + 1) = ' + getSubshell(orb.subshellId).capacity + ' electrons.');
       var range = getSubshell(orb.subshellId).orbitalIds.map(function (oid) { return orbById[oid].ml; }).sort(function (a, b) { return a - b; });
-      X.ml.push(mlRule + '. This orbital has m_{l} = ' + signed(orb.ml) + ' (l = ' + oL + ' allows ' + (2 * oL + 1) + ' value' + (oL ? 's' : '') + ': ' + range.map(signed).join(', ') + ').');
+      X.ml.push(mlRule + '. This orbital is labelled m_{l} = ' + signed(orb.ml) + ' (l = ' + oL + ' allows ' + (2 * oL + 1) + ' value' + (oL ? 's' : '') + ': ' + range.map(signed).join(', ') + ').');
     }
     if (hasReal) X.ml.push(realOrbitalsText(ls));
     X.ms.push(RULES.ms);
@@ -495,7 +571,7 @@
     };
   }
 
-  var ENERGY_NOTE = 'Schematic only: boxes follow the many-electron energy order (lower n + l first, ties go to lower n), orbitals in one subshell are equal in energy, and the vertical gaps are not to scale. The 4s/3d (and 5s/4d) order is only approximate and reverses in many ions.';
+  var ENERGY_NOTE = 'Schematic only: the boxes show the filling order of neutral atoms (lower n + l first, ties go to lower n), not a fixed energy ranking, and the vertical gaps are not to scale. Orbitals in one subshell have equal energy in a free atom, and in transition-metal ions the 4s (5s) electrons are removed before the 3d (4d) ones.';
 
   return {
     SUBSHELLS: SUBSHELLS, ORBITALS: ORBITALS, SHELLS: SHELLS, MAX_ELECTRONS: MAX_ELECTRONS,
@@ -507,7 +583,7 @@
     describeSelection: describeSelection,
     // additions
     elementOf: elementOf, configCounts: configCounts, subshellCounts: subshellCounts,
-    formatConfig: formatConfig, superscript: sup,
+    formatConfig: formatConfig, superscript: sup, elementDetails: elementDetails,
     // labels with real subscripts - see the comment above subHTML
     orbitalHTML: orbitalHTML, orbitalPlain: orbitalPlain, orbitalMarkup: orbitalMarkup, subHTML: subHTML, subPlain: subPlain
   };

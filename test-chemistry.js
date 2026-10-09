@@ -152,6 +152,277 @@ test('assess notes the anomaly and the "simple rule" Cr', function () {
   assert.strictEqual(b.groundState.symbol, 'Cr');
 });
 
+/* ---------- NIST audit (Z = 1-54) ---------- */
+/* Ground-state configurations as NIST lists them (written in n order, which differs from the app's
+   filling order for 4s/3d and 5s/4d).  Kept as an independent list on purpose; the checks below
+   compare occupancy counts, not strings, so the two orders can be compared. */
+var NIST = {
+  1:'1s1', 2:'1s2', 3:'[He] 2s1', 4:'[He] 2s2', 5:'[He] 2s2 2p1', 6:'[He] 2s2 2p2', 7:'[He] 2s2 2p3',
+  8:'[He] 2s2 2p4', 9:'[He] 2s2 2p5', 10:'[He] 2s2 2p6',
+  11:'[Ne] 3s1', 12:'[Ne] 3s2', 13:'[Ne] 3s2 3p1', 14:'[Ne] 3s2 3p2', 15:'[Ne] 3s2 3p3',
+  16:'[Ne] 3s2 3p4', 17:'[Ne] 3s2 3p5', 18:'[Ne] 3s2 3p6',
+  19:'[Ar] 4s1', 20:'[Ar] 4s2', 21:'[Ar] 3d1 4s2', 22:'[Ar] 3d2 4s2', 23:'[Ar] 3d3 4s2', 24:'[Ar] 3d5 4s1',
+  25:'[Ar] 3d5 4s2', 26:'[Ar] 3d6 4s2', 27:'[Ar] 3d7 4s2', 28:'[Ar] 3d8 4s2', 29:'[Ar] 3d10 4s1',
+  30:'[Ar] 3d10 4s2', 31:'[Ar] 3d10 4s2 4p1', 32:'[Ar] 3d10 4s2 4p2', 33:'[Ar] 3d10 4s2 4p3',
+  34:'[Ar] 3d10 4s2 4p4', 35:'[Ar] 3d10 4s2 4p5', 36:'[Ar] 3d10 4s2 4p6',
+  37:'[Kr] 5s1', 38:'[Kr] 5s2', 39:'[Kr] 4d1 5s2', 40:'[Kr] 4d2 5s2', 41:'[Kr] 4d4 5s1', 42:'[Kr] 4d5 5s1',
+  43:'[Kr] 4d5 5s2', 44:'[Kr] 4d7 5s1', 45:'[Kr] 4d8 5s1', 46:'[Kr] 4d10', 47:'[Kr] 4d10 5s1',
+  48:'[Kr] 4d10 5s2', 49:'[Kr] 4d10 5s2 5p1', 50:'[Kr] 4d10 5s2 5p2', 51:'[Kr] 4d10 5s2 5p3',
+  52:'[Kr] 4d10 5s2 5p4', 53:'[Kr] 4d10 5s2 5p5', 54:'[Kr] 4d10 5s2 5p6'
+};
+var NIST_CORES = {
+  He: { '1s': 2 },
+  Ne: { '1s': 2, '2s': 2, '2p': 6 },
+  Ar: { '1s': 2, '2s': 2, '2p': 6, '3s': 2, '3p': 6 },
+  Kr: { '1s': 2, '2s': 2, '2p': 6, '3s': 2, '3p': 6, '4s': 2, '3d': 10, '4p': 6 }
+};
+// "[Ar] 3d5 4s1" (digits for superscripts, any order) -> { '1s':2, …, '3d':5, '4s':1 }
+function parseConfig(str) {
+  var counts = {};
+  var core = /^\[(He|Ne|Ar|Kr)\]/.exec(str);
+  if (core) Object.keys(NIST_CORES[core[1]]).forEach(function (k) { counts[k] = NIST_CORES[core[1]][k]; });
+  var re = /(\d[spd])(\d+)/g, m, rest = core ? str.slice(core[0].length) : str;
+  while ((m = re.exec(rest))) counts[m[1]] = (counts[m[1]] || 0) + (+m[2]);
+  return counts;
+}
+function nonzero(counts) {
+  var r = {};
+  Object.keys(counts).forEach(function (k) { if (counts[k]) r[k] = counts[k]; });
+  return r;
+}
+function arrows(occ, subId) { // one subshell as a textbook row, boxes in diagram (left-to-right) order
+  return C.getSubshell(subId).orbitalIds.map(function (id) {
+    var o = occ[id];
+    return o.up && o.down ? '↑↓' : (o.up ? '↑' : (o.down ? '↓' : '·'));
+  }).join(' ');
+}
+
+test('NIST audit: configuration of every element 1-54 (counts, strings, sums)', function () {
+  assert.strictEqual(Object.keys(NIST).length, 54);
+  for (var Z = 1; Z <= 54; Z++) {
+    var want = nonzero(parseConfig(NIST[Z]));
+    var sumWant = Object.keys(want).reduce(function (t, k) { return t + want[k]; }, 0);
+    assert.strictEqual(sumWant, Z, 'NIST list itself sums to Z=' + Z);
+    assert.deepStrictEqual(nonzero(C.configCounts(Z)), want, 'configCounts Z=' + Z);
+    var d = C.elementDetails(Z);
+    assert.deepStrictEqual(nonzero(parseConfig(plain(d.configuration))), want, 'full string Z=' + Z + ' ' + d.configuration);
+    assert.deepStrictEqual(nonzero(parseConfig(plain(d.shorthand))), want, 'shorthand Z=' + Z + ' ' + d.shorthand);
+    // the occupancy itself, read back from the electrons in the boxes
+    assert.deepStrictEqual(nonzero(C.subshellCounts(C.configOf(Z))), want, 'occupancy Z=' + Z);
+    assert.strictEqual(C.totalElectrons(C.configOf(Z)), Z);
+  }
+});
+
+test('only the eight known exceptions break the filling order, and no other element does', function () {
+  var exceptions = { 24: 'Cr', 29: 'Cu', 41: 'Nb', 42: 'Mo', 44: 'Ru', 45: 'Rh', 46: 'Pd', 47: 'Ag' };
+  var s = C.SUBSHELLS.map(function (x) { return x.id; });
+  for (var Z = 1; Z <= 54; Z++) {
+    // plain Madelung fill
+    var left = Z, mad = {};
+    C.SUBSHELLS.forEach(function (sub) { var k = Math.min(sub.capacity, left); mad[sub.id] = k; left -= k; });
+    var same = s.every(function (id) { return (C.configCounts(Z)[id] || 0) === mad[id]; });
+    if (exceptions[Z]) { assert.strictEqual(C.elementOf(Z).symbol, exceptions[Z]); assert.strictEqual(same, false, 'Z=' + Z); }
+    else assert.strictEqual(same, true, 'Z=' + Z + ' should follow Madelung');
+  }
+  assert.deepStrictEqual(C.configCounts(46)['5s'], 0, 'Pd has no 5s electron');
+  var noFiveS = [];
+  for (var z = 37; z <= 54; z++) if (!C.configCounts(z)['5s']) noFiveS.push(z);
+  assert.deepStrictEqual(noFiveS, [46], 'Pd is the only element from Rb to Xe with an empty 5s');
+});
+
+/* ---------- Hund's rule layout (spin up first, left to right, then pair) ---------- */
+test('Hund layout in the diagram box order', function () {
+  var N = C.configOf(7), O = C.configOf(8), Cc = C.configOf(6), Ne = C.configOf(10);
+  assert.strictEqual(arrows(N, '2s'), '↑↓');
+  assert.strictEqual(arrows(N, '2p'), '↑ ↑ ↑');
+  assert.strictEqual(arrows(Cc, '2p'), '↑ ↑ ·');
+  assert.strictEqual(arrows(O, '2p'), '↑↓ ↑ ↑');
+  assert.strictEqual(arrows(C.configOf(9), '2p'), '↑↓ ↑↓ ↑');
+  assert.strictEqual(arrows(Ne, '2p'), '↑↓ ↑↓ ↑↓');
+  // the box order really is the one the diagram uses: px py pz
+  assert.deepStrictEqual(C.getSubshell('2p').orbitalIds, ['2px', '2py', '2pz']);
+  assert.deepStrictEqual(C.getSubshell('3d').orbitalIds, ['3dz2', '3dxz', '3dyz', '3dx2-y2', '3dxy']);
+  assert.deepStrictEqual(O['2px'], { up: true, down: true });
+  assert.deepStrictEqual(O['2pz'], { up: true, down: false });
+
+  var Cr = C.configOf(24);
+  assert.strictEqual(arrows(Cr, '4s'), '↑');
+  assert.strictEqual(arrows(Cr, '3d'), '↑ ↑ ↑ ↑ ↑');
+  var Mn = C.configOf(25);
+  assert.strictEqual(arrows(Mn, '4s'), '↑↓');
+  assert.strictEqual(arrows(Mn, '3d'), '↑ ↑ ↑ ↑ ↑');
+  var Fe = C.configOf(26);
+  assert.strictEqual(arrows(Fe, '4s'), '↑↓');
+  assert.strictEqual(arrows(Fe, '3d'), '↑↓ ↑ ↑ ↑ ↑');
+  assert.strictEqual(arrows(C.configOf(28), '3d'), '↑↓ ↑↓ ↑↓ ↑ ↑');
+  var Cu = C.configOf(29);
+  assert.strictEqual(arrows(Cu, '4s'), '↑');
+  assert.strictEqual(arrows(Cu, '3d'), '↑↓ ↑↓ ↑↓ ↑↓ ↑↓');
+  var Pd = C.configOf(46);
+  assert.strictEqual(arrows(Pd, '5s'), '·');
+  assert.strictEqual(arrows(Pd, '4d'), '↑↓ ↑↓ ↑↓ ↑↓ ↑↓');
+  assert.strictEqual(arrows(Pd, '4p'), '↑↓ ↑↓ ↑↓');
+  assert.strictEqual(arrows(C.configOf(41), '4d'), '↑ ↑ ↑ ↑ ·');   // Nb 4d⁴
+  assert.strictEqual(arrows(C.configOf(44), '4d'), '↑↓ ↑↓ ↑ ↑ ↑'); // Ru 4d⁷: pairs start in the leftmost boxes
+  assert.strictEqual(arrows(C.configOf(44), '5s'), '↑');
+  assert.strictEqual(arrows(C.configOf(45), '4d'), '↑↓ ↑↓ ↑↓ ↑ ↑'); // Rh 4d⁸
+});
+
+test('Hund layout holds for every element: spread before pairing, spin up first, left to right', function () {
+  for (var Z = 1; Z <= 54; Z++) {
+    var occ = C.configOf(Z);
+    C.SUBSHELLS.forEach(function (s) {
+      var per = s.orbitalIds.map(function (id) { return (occ[id].up ? 1 : 0) + (occ[id].down ? 1 : 0); });
+      s.orbitalIds.forEach(function (id) {
+        // a lone electron is spin up; a down electron never sits without its up partner
+        assert.ok(!(occ[id].down && !occ[id].up), 'down without up in ' + id + ' Z=' + Z);
+      });
+      for (var i = 1; i < per.length; i++) assert.ok(per[i] <= per[i - 1], 'left-to-right filling ' + s.id + ' Z=' + Z);
+      if (per.indexOf(2) >= 0) assert.ok(per.indexOf(0) < 0, 'pairing before every box has one: ' + s.id + ' Z=' + Z);
+    });
+  }
+});
+
+/* ---------- elements: period / group / block, elementDetails ---------- */
+test('period / group / block for every element (independent table)', function () {
+  var groups = [1, 18,
+    1, 2, 13, 14, 15, 16, 17, 18,
+    1, 2, 13, 14, 15, 16, 17, 18,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
+  var periods = [1, 1].concat(new Array(8).fill(2), new Array(8).fill(3), new Array(18).fill(4), new Array(18).fill(5));
+  var dBlock = 'Sc Ti V Cr Mn Fe Co Ni Cu Zn Y Zr Nb Mo Tc Ru Rh Pd Ag Cd'.split(' ');
+  var sBlock = 'H He Li Be Na Mg K Ca Rb Sr'.split(' ');
+  assert.strictEqual(groups.length, 54);
+  assert.strictEqual(periods.length, 54);
+  C.ELEMENTS.forEach(function (e, i) {
+    assert.strictEqual(e.Z, i + 1);
+    assert.strictEqual(e.period, periods[i], e.symbol + ' period');
+    assert.strictEqual(e.group, groups[i], e.symbol + ' group');
+    var block = dBlock.indexOf(e.symbol) >= 0 ? 'd' : (sBlock.indexOf(e.symbol) >= 0 ? 's' : 'p');
+    assert.strictEqual(e.block, block, e.symbol + ' block');
+    assert.strictEqual(C.elementOf(e.Z), e);
+  });
+});
+
+test('period / group / block spot checks', function () {
+  function pgb(sym) {
+    var e = C.ELEMENTS.filter(function (x) { return x.symbol === sym; })[0];
+    return [e.period, e.group, e.block];
+  }
+  assert.deepStrictEqual(pgb('H'), [1, 1, 's']);
+  assert.deepStrictEqual(pgb('He'), [1, 18, 's']);        // convention: group 18, but s-block (1s²)
+  assert.deepStrictEqual(pgb('Fe'), [4, 8, 'd']);
+  assert.deepStrictEqual(pgb('Sn'), [5, 14, 'p']);
+  assert.deepStrictEqual(pgb('Xe'), [5, 18, 'p']);
+  assert.deepStrictEqual(pgb('Y'), [5, 3, 'd']);
+  assert.deepStrictEqual(pgb('Zn'), [4, 12, 'd']);
+  assert.deepStrictEqual(pgb('Cd'), [5, 12, 'd']);
+  assert.deepStrictEqual(pgb('Ga'), [4, 13, 'p']);
+  assert.deepStrictEqual(pgb('Al'), [3, 13, 'p']);
+  assert.deepStrictEqual(pgb('Ne'), [2, 18, 'p']);
+  assert.deepStrictEqual(pgb('Ca'), [4, 2, 's']);
+  assert.deepStrictEqual(pgb('Pd'), [5, 10, 'd']);
+});
+
+test('group number agrees with the outer electron count (cross-check of data and groups)', function () {
+  C.ELEMENTS.forEach(function (e) {
+    if (e.Z === 2) return;                                  // He: group 18 by position, 2 electrons
+    var c = C.configCounts(e.Z), n = e.period;
+    var s = c[n + 's'] || 0, p = c[n + 'p'] || 0, d = c[(n - 1) + 'd'] || 0;
+    if (e.block === 's') assert.strictEqual(s, e.group, e.symbol);
+    else if (e.block === 'p') assert.strictEqual(s + p, e.group - 10, e.symbol);    // groups 13-18: 3 … 8 outer electrons
+    else assert.strictEqual(s + d, e.group, e.symbol);      // d-block: ns + (n-1)d = group (Cr 6, Cu 11, Pd 10 …)
+  });
+});
+
+test('elementDetails fields', function () {
+  var fe = C.elementDetails(26);
+  assert.deepStrictEqual(Object.keys(fe).sort(),
+    ['Z', 'anomaly', 'block', 'configuration', 'electrons', 'group', 'name', 'period', 'shorthand', 'symbol', 'valenceNote']);
+  assert.strictEqual(fe.Z, 26); assert.strictEqual(fe.symbol, 'Fe'); assert.strictEqual(fe.name, 'Iron');
+  assert.strictEqual(fe.period, 4); assert.strictEqual(fe.group, 8); assert.strictEqual(fe.block, 'd');
+  assert.strictEqual(fe.electrons, 26);
+  assert.strictEqual(fe.configuration, '1s² 2s² 2p⁶ 3s² 3p⁶ 4s² 3d⁶');
+  assert.strictEqual(fe.shorthand, '[Ar] 4s² 3d⁶');
+  assert.strictEqual(fe.anomaly, null);
+  assert.ok(/4s fills before 3d/.test(fe.valenceNote) && /lose the 4s electrons first/.test(fe.valenceNote));
+
+  var cr = C.elementDetails(24);
+  assert.strictEqual(cr.shorthand, '[Ar] 4s¹ 3d⁵');
+  assert.strictEqual(cr.configuration, '1s² 2s² 2p⁶ 3s² 3p⁶ 4s¹ 3d⁵');
+  assert.strictEqual(cr.anomaly.expected, '[Ar] 4s² 3d⁴');
+  assert.strictEqual(cr.anomaly.actual, '[Ar] 4s¹ 3d⁵');
+  assert.strictEqual(cr.anomaly.expectedPlain, '[Ar] 4s2 3d4');
+  assert.strictEqual(cr.anomaly.actualPlain, '[Ar] 4s1 3d5');
+  assert.ok(cr.anomaly.reason.length > 40 && cr.anomaly.note.length > 10);
+
+  var pd = C.elementDetails(46);
+  assert.strictEqual(pd.shorthand, '[Kr] 4d¹⁰');
+  assert.strictEqual(pd.anomaly.expected, '[Kr] 5s² 4d⁸');
+  assert.strictEqual(pd.anomaly.actual, '[Kr] 4d¹⁰');
+  assert.ok(/palladium has no 5s electron/.test(pd.valenceNote) && /Pd²⁺ is \[Kr\] 4d⁸/.test(pd.valenceNote));
+
+  var h = C.elementDetails(1), he = C.elementDetails(2), xe = C.elementDetails(54), sn = C.elementDetails(50);
+  assert.strictEqual(h.shorthand, '1s¹'); assert.strictEqual(h.configuration, '1s¹');
+  assert.strictEqual(he.configuration, '1s²');
+  assert.deepStrictEqual([he.period, he.group, he.block], [1, 18, 's']);
+  assert.ok(/group 18/.test(he.valenceNote) && /s-block/.test(he.valenceNote));
+  assert.strictEqual(xe.shorthand, '[Kr] 5s² 4d¹⁰ 5p⁶'); assert.strictEqual(xe.electrons, 54);
+  assert.strictEqual(sn.valenceNote, 'Valence electrons: 4 (5s² 5p²).');
+  assert.strictEqual(C.elementDetails(8).valenceNote, 'Valence electrons: 6 (2s² 2p⁴).');
+  assert.strictEqual(C.elementDetails(19).valenceNote, 'Valence electrons: 1 (4s¹).');
+
+  // invalid input never throws
+  [0, 55, -1, 1.5, NaN, undefined, null, '26'].forEach(function (z) { assert.strictEqual(C.elementDetails(z), null, String(z)); });
+
+  for (var Z = 1; Z <= 54; Z++) {
+    var d = C.elementDetails(Z), e = C.elementOf(Z);
+    assert.strictEqual(d.name, e.name); assert.strictEqual(d.symbol, e.symbol);
+    assert.strictEqual(d.electrons, Z);
+    assert.ok(typeof d.valenceNote === 'string' && d.valenceNote.length > 10, 'valenceNote Z=' + Z);
+    assert.strictEqual(d.anomaly === null, C.anomalyOf(Z) === null, 'anomaly Z=' + Z);
+  }
+});
+
+/* ---------- honesty of the explanatory text ---------- */
+test('anomaly wording: rationale for Cr/Mo/Cu/Ag, empirical for Nb/Ru/Rh/Pd, never over-claimed', function () {
+  [24, 29, 42, 47].forEach(function (Z) {
+    var a = C.anomalyOf(Z);
+    assert.ok(/rationale, not a complete explanation/.test(a.reason), 'Z=' + Z);
+    assert.ok(/rationale, not a complete explanation/.test(a.note), 'note Z=' + Z);
+    assert.ok(!/because|proves|always|must/i.test(a.reason), 'Z=' + Z);
+  });
+  [41, 44, 45].forEach(function (Z) {
+    var a = C.anomalyOf(Z);
+    assert.ok(/Measured result/.test(a.reason), 'Z=' + Z);
+    assert.ok(/No half-filled or full subshell/.test(a.reason), 'Z=' + Z);
+    assert.ok(/close/.test(a.reason) && /repulsion/.test(a.reason), 'small gap + repulsion Z=' + Z);
+    assert.ok(!/rationale/.test(a.reason), 'no rationale claimed for Z=' + Z);
+    assert.ok(/Empirical/.test(a.note), 'note Z=' + Z);
+  });
+  var pd = C.anomalyOf(46);
+  assert.ok(/Measured result/.test(pd.reason) && /only element from Rb to Xe with no 5s electron/.test(pd.reason));
+  assert.ok(/does not predict it/.test(pd.reason) && /Empirical/.test(pd.note));
+  // short enough for hover text
+  [24, 29, 41, 42, 44, 45, 46, 47].forEach(function (Z) {
+    var a = C.anomalyOf(Z);
+    assert.ok(a.note.length > 10 && a.note.length <= 90, 'note length Z=' + Z + ' ' + a.note.length);
+    assert.ok(a.reason.length <= 320, 'reason length Z=' + Z + ' ' + a.reason.length);
+    assert.ok(!/[ₐ-ₜ]/.test(a.reason + a.note));
+  });
+  // the statements about energy order are about neutral atoms; ions of transition metals lose s first
+  assert.ok(/neutral atoms/.test(C.ENERGY_NOTE) && /not a fixed energy ranking/.test(C.ENERGY_NOTE));
+  assert.ok(/transition-metal ions the 4s \(5s\) electrons are removed before the 3d \(4d\)/.test(C.ENERGY_NOTE));
+  assert.ok(!/reverses/.test(C.ENERGY_NOTE));
+  assert.ok(/neutral atoms/.test(C.RULES.aufbau) && /exceptions/.test(C.RULES.aufbau));
+  // 3d occupied while 4s is empty: the hint says the order is for neutral atoms and names the ion rule correctly
+  var sd = C.assess(occFrom({ '1s': 'ud', '2s': 'ud', '2px': 'ud', '2py': 'ud', '2pz': 'ud', '3s': 'ud', '3px': 'ud', '3py': 'ud', '3pz': 'ud', '3dz2': 'u' }));
+  assert.ok(sd.violations.some(function (v) {
+    return v.rule === 'aufbau' && /filling order of neutral atoms/.test(v.message) && /transition metals lose their s electrons first/.test(v.message) && !/lower in energy/.test(v.message);
+  }), JSON.stringify(sd.violations));
+});
+
 /* ---------- rule detection ---------- */
 test('Aufbau violation', function () {
   var a = C.assess(occFrom({ '2s': 'u' }));            // 2s before 1s
@@ -338,7 +609,7 @@ test('describeSelection explain (per quantum number, numbers follow the selectio
   assert.ok(d3.explain.ml.some(function (r) { return /d_\{x²−y²\} = \+2/.test(r) && !/p_\{x\} = \+1/.test(r); }), 'd-only convention line');
   var pz = C.describeSelection('orbital', '2pz');
   assert.ok(pz.explain.l[0].indexOf('l = 1 (p)') === 0);
-  assert.ok(pz.explain.ml.some(function (r) { return /m_\{l\} = 0 \(l = 1 allows 3 values/.test(r); }));
+  assert.ok(pz.explain.ml.some(function (r) { return /labelled m_\{l\} = 0 \(l = 1 allows 3 values/.test(r); }));
   assert.ok(pz.explain.n.some(function (r) { return /holds at most 2/.test(r); }));
 
   // an s selection has no p/d convention note; n = 5 never prints an undefined letter

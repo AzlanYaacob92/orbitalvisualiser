@@ -16,6 +16,14 @@
      while shown. As a last resort it also sets an inline `translate` on the pop.
    - data-shell="N" on #selection-title and #qn-n, data-n="N" on .legend-item (shell colour hooks).
    - #orbital-canvas needs a height (min ~320px); app.js sets 360px inline only if it is < 100px.
+   - Screens and modes: body[data-screen="start|table|app"] and body[data-mode="explore|atom"]; exactly one
+     section.screen (#screen-start | #screen-table | #screen-app) is visible, the others carry [hidden]. During a
+     change the old one has .is-leaving and the new one .is-entering (the fade itself runs through motion.js).
+     #mode-switch is [hidden] outside the app view, #element-chip is [hidden] unless Real-atom mode shows an
+     element (data-z), #config-panel is [hidden] in Explore mode. Summary parts: .element-title (.element-name,
+     .element-symbol), .electron-count, .config-line.config-full|.config-short (.config-key + .config-val),
+     .status-line.is-ok|is-warn, details#element-more.element-more (> summary, p.anomaly-reason, p.valence-note;
+     [hidden] when it has nothing to say).
 */
 (function () {
   const Chem = window.OrbitalChem;
@@ -230,10 +238,13 @@
     sliceMode: 'orbital',
     selection: { level: 'orbital', id: '2px' },
     focusOrbital: null,       // orbital picked inside a subshell view
-    occupancy: Chem.emptyOccupancy(),   // read-only on screen: filled only by the element picker
+    occupancy: Chem.emptyOccupancy(),   // read-only on screen: filled only by choosing an element (Real atom mode)
     theme: root.getAttribute('data-theme') || 'light',
     anchor: '2px',            // the single orbital that anchors re-resolution when mode changes
-    loadedZ: null,            // element chosen in #element-select (null = none)
+    mode: 'explore',          // 'explore' (orbitals only) | 'atom' (an element's electrons are drawn)
+    loadedZ: null,            // element whose electrons are drawn (null = none, always so in Explore mode)
+    lastZ: null,              // the last element chosen: Explore -> Real atom brings it back without the table
+    started: false,           // true once the app view has been shown (the table's Back needs to know)
     hidden: new Set(),        // orbitals switched off via the legend; cleared whenever the selection changes
     hiddenKey: ''
   };
@@ -480,30 +491,74 @@
   }
 
   /* ---------------- configuration panel ---------------- */
-  /* Electrons are read-only here: they come from the element picker and always show the ground state,
-     so there are no Aufbau / Hund / Pauli complaints to make, only the configuration and any anomaly. */
+  /* Electrons are read-only here: they come from the chosen element and always show its ground state,
+     so there is nothing to check, only the element, its configuration and any exception to the filling order.
+     #config-panel is hidden in Explore mode. */
+
+  /* everything the summary needs about element Z: chemistry.js elementDetails(), or the same fields
+     assembled from the older API if that function is missing */
+  function detailsOf(Z) {
+    if (!Z) return null;
+    if (typeof Chem.elementDetails === 'function') {
+      try { const d = Chem.elementDetails(Z); if (d) return d; } catch (e) { /* fall through */ }
+    }
+    const e = Chem.elementOf(Z);
+    if (!e) return null;
+    const counts = Chem.configCounts(Z), an = Chem.anomalyOf(Z);
+    return {
+      Z: Z, symbol: e.symbol, name: e.name, period: e.period, group: e.group, block: e.block, electrons: Z,
+      configuration: Chem.formatConfig(counts),
+      shorthand: Chem.formatConfig(counts, { shorthand: true }),
+      anomaly: an && { expected: an.expectedPretty || an.expected, actual: an.actualPretty || an.actual, reason: an.reason },
+      valenceNote: ''
+    };
+  }
+
+  function notationLine(parent, cls, key, value) {
+    const p = el('p', 'config-line ' + cls);
+    p.appendChild(el('span', 'config-key', key));
+    p.appendChild(document.createTextNode(' '));
+    p.appendChild(el('span', 'config-val', value));
+    parent.appendChild(p);
+  }
+
   function updateConfig() {
-    const total = Chem.totalElectrons(state.occupancy);
-    const Z = state.loadedZ;
-    $('electron-count').textContent = total ? total + (total === 1 ? ' electron' : ' electrons') : '';
-    const nt = $('config-notation');
-    const st = $('config-status');
+    const d = state.loadedZ ? detailsOf(state.loadedZ) : null;
+    const nt = $('config-notation'), st = $('config-status'), vn = $('valence-note');
+    const more = $('element-more'), why = $('anomaly-reason');
+    $('config-panel').hidden = !d;
     nt.textContent = '';
     st.textContent = '';
-    function line(kind, text) { st.appendChild(el('p', 'status-line ' + kind, text)); }
-    if (!Z) return;   /* nothing chosen: the picker label says it all, so show nothing */
-    const counts = Chem.configCounts(Z);
-    const full = Chem.formatConfig(counts);
-    const short = Chem.formatConfig(counts, { shorthand: true });
-    nt.textContent = full;
-    if (short !== full) nt.appendChild(el('span', 'config-shorthand', '  ·  ' + short));
-    const e = Chem.elementOf(Z);
-    line('is-ok', 'Ground-state configuration of ' + e.name + ' (' + e.symbol + ', Z = ' + Z + ').');
-    const an = Chem.anomalyOf(Z);
-    if (an) {
-      line('is-warn', 'Anomaly: the Aufbau order predicts ' + an.expectedPretty + ', but the real ground state is ' + an.actualPretty + '. ' + (an.reason || ''));
+    vn.textContent = ''; vn.hidden = true;
+    why.textContent = ''; why.hidden = true;
+    more.hidden = true;
+    if (!d) {
+      $('element-name').textContent = '';
+      $('element-symbol').textContent = '';
+      $('electron-count').textContent = '';
+      more.open = false; moreZ = null;
+      return;
     }
+    if (moreZ !== d.Z) { more.open = false; moreZ = d.Z; }     // a new element starts collapsed; a click in the diagram keeps it as it was
+    const total = Chem.totalElectrons(state.occupancy);
+    $('element-name').textContent = d.name;
+    $('element-symbol').textContent = d.symbol;
+    $('electron-count').textContent = 'Z = ' + d.Z + ' · ' + total + (total === 1 ? ' electron' : ' electrons');
+    notationLine(nt, 'config-full', 'Full', d.configuration);
+    if (d.shorthand && d.shorthand !== d.configuration) notationLine(nt, 'config-short', 'Shorthand', d.shorthand);
+    function line(kind, text) { st.appendChild(el('p', 'status-line ' + kind, text)); }
+    const an = d.anomaly;
+    if (an) {
+      line('is-warn', 'Exception to the simple filling order. It predicts ' + an.expected + '; the real ground state is ' + an.actual + '.');
+      if (an.reason) { why.textContent = an.reason; why.hidden = false; }
+    } else {
+      line('is-ok', 'Ground state, as the simple filling order predicts.');
+    }
+    if (d.valenceNote) { vn.textContent = d.valenceNote; vn.hidden = false; }
+    $('element-more-summary').textContent = an ? 'Why the exception?' : 'More about this element';
+    more.hidden = why.hidden && vn.hidden;       // the reason (exceptions) and the valence / ion note sit behind one click
   }
+  let moreZ = null;                              // the element whose "more" details were last collapsed
 
   /* ---------------- 3-D viewer ---------------- */
   const mount = $('orbital-canvas');
@@ -1078,37 +1133,323 @@
     });
   });
 
-  /* ---------------- element picker ---------------- */
-  /* The only way electrons get into the boxes: pick an element and its ground state is drawn.
-     The first option clears them again. */
-  const elementSelect = $('element-select');
-  (function buildElementOptions() {
-    elementSelect.textContent = '';
-    const none = document.createElement('option');
-    none.value = ''; none.textContent = 'None (just explore)';
-    elementSelect.appendChild(none);
-    Chem.ELEMENTS.forEach(function (e) {
-      const opt = document.createElement('option');
-      opt.value = String(e.Z);
-      opt.textContent = e.symbol + ' — ' + e.name + ' (Z = ' + e.Z + ')';
-      elementSelect.appendChild(opt);
-    });
-    elementSelect.value = '';
-  })();
+  /* ================================================================
+     SCREENS, MODES AND THE ELEMENT
+       start  -> "Explore orbitals" -> app view, no electrons
+              -> "Real atoms" -> periodic table -> app view with that element's electrons
+     In the app view #mode-switch flips Explore <-> Real atom, #element-chip re-opens the table.
+     Where we are lives in location.hash, so a link or a reload lands on the same view:
+       (none) start screen   #explore app view, Explore   #atom=26 app view, Fe   #atom the table
+     Entering the table pushes a history entry (Back leaves it again); everything else that happens
+     inside the app view, and choosing an element, replaces the current entry.
+     Electrons only ever get into the boxes through setElement().
+     ================================================================ */
+  const SCREENS = ['start', 'table', 'app'];
+  const HEADING_OF = { start: 'start-heading', table: 'table-heading', app: 'app-heading' };
+  const LEAVE_MS = 100, ENTER_MS = 170;      // fade out, then fade in with a 10px lift: 270 ms in all, no sideways movement
+  const screenEl = function (name) { return $('screen-' + name); };
+  const DEFAULT_HINT = $('table-hint').textContent;
 
-  elementSelect.addEventListener('change', function () {
-    const Z = elementSelect.value === '' ? 0 : Number(elementSelect.value);
+  let curScreen = null;       // the screen being shown, or about to be (set when a change starts)
+  let shown = null;           // the screen that is on display right now
+  let navToken = 0;           // a newer change cancels the unfinished steps of an older one
+  let pendingFade = false;    // electrons went into the boxes while the diagram was out of sight
+  let electronToken = 0;
+  let viewerTried = false;
+  let announceTimer = 0;
+  let table = null;           // the PeriodicTable instance, mounted the first time the table opens
+  let booted = false;
+
+  /* ---- announcements (polite live region, screen readers only) ---- */
+  function announce(msg) {
+    const r = $('sr-status');
+    if (!r) return;
+    clearTimeout(announceTimer);
+    r.textContent = '';                          // empty first, so the same sentence twice is read twice
+    announceTimer = setTimeout(function () { r.textContent = msg; }, 60);
+  }
+
+  function announceFor(t) {
+    if (t.screen === 'start') return 'Start screen. Choose Explore orbitals or Real atoms.';
+    if (t.screen === 'table') return 'Periodic table selector. Choose an element from hydrogen to xenon.';
+    if (t.mode !== 'atom') return 'Explore mode: orbitals shown without electrons.';
+    const d = detailsOf(t.Z);
+    if (!d) return '';
+    return 'Real atom mode: ' + d.name.toLowerCase() + ' selected, ' + d.Z + ' electrons.' +
+      (d.anomaly ? ' Its real configuration differs from the simple filling order.' : '');
+  }
+
+  /* ---- electrons fading in / out of the diagram ---- */
+  function fadeInElectrons(delay) {
+    if (Motion.reduced()) return;
+    const order = {};                            // the lowest subshell first, so the atom seems to fill from the inside out
+    rowEls.forEach(function (r, i) { order[r.sub.id] = rowEls.length - 1 - i; });
+    diagramEl.querySelectorAll('.orbital-box .electron').forEach(function (e) {
+      const row = e.closest('.subshell-row');
+      Motion.animate(e, [{ opacity: 0 }, { opacity: 1 }], { duration: 'base', delay: (delay || 0) + (order[row && row.dataset.subshell] || 0) * 16 });
+    });
+  }
+
+  function fadeOutElectrons() {
+    const els = Array.from(diagramEl.querySelectorAll('.orbital-box .electron'));
+    if (!els.length || Motion.reduced()) return Promise.resolve();
+    return Promise.all(els.map(function (e) {
+      return Motion.animate(e, [{ opacity: 1 }, { opacity: 0 }], { duration: 'fast', fill: 'forwards' });
+    }));
+  }
+
+  /* ---- the element: the one place that puts electrons into (or takes them out of) the boxes ---- */
+  function setElement(Z) {
+    electronToken++;
     const occ = Chem.emptyOccupancy();
-    if (Z >= 1 && Z <= Chem.MAX_ELECTRONS) {
+    if (Z) {
       const cfg = Chem.configOf(Z);
       Object.keys(cfg || {}).forEach(function (k) { if (occ[k]) occ[k] = { up: !!cfg[k].up, down: !!cfg[k].down }; });
-      state.loadedZ = Z;
-    } else {
-      state.loadedZ = null;
+      state.lastZ = Z;
     }
+    const hadElectrons = !!state.loadedZ;
+    const visible = shown === 'app' && curScreen === 'app';
+    state.loadedZ = Z || null;
     state.occupancy = occ;
-    renderElectrons();
+    if (Z) {
+      renderElectrons();
+      if (visible) fadeInElectrons(0); else pendingFade = true;     // out of sight: fade them in once the view is back
+    } else {
+      pendingFade = false;
+      updateConfig();
+      if (visible && hadElectrons) {
+        const tok = electronToken;
+        fadeOutElectrons().then(function () { if (tok === electronToken) updateDiagram(); });
+      } else {
+        updateDiagram();
+      }
+    }
+  }
+
+  /* ---- the app bar and the hooks the stylesheet reads ---- */
+  function updateChrome() {
+    const onApp = shown === 'app';
+    const d = state.mode === 'atom' ? detailsOf(state.loadedZ) : null;
+    document.body.setAttribute('data-screen', shown || curScreen || 'start');
+    document.body.setAttribute('data-mode', state.mode);
+    $('mode-switch').hidden = !onApp;
+    document.querySelectorAll('input[name="app-mode"]').forEach(function (r) { r.checked = r.value === state.mode; });
+    const chip = $('element-chip');
+    chip.hidden = !(onApp && d);
+    if (d) {
+      $('element-chip-text').textContent = d.symbol + ' · Z = ' + d.Z;
+      chip.setAttribute('data-z', String(d.Z));
+      chip.setAttribute('aria-label', d.symbol + ' · Z = ' + d.Z + ' (' + d.name + '). Change element.');
+    } else {
+      chip.removeAttribute('data-z');
+    }
+    $('app-heading').textContent = d ? 'Orbital explorer: real atom, ' + d.name.toLowerCase() : 'Orbital explorer: explore mode';
+  }
+
+  /* ---- the 3-D viewer is created when the app view is first on display (a hidden element has no size) ---- */
+  function ensureViewer() {
+    if (viewerTried) return;
+    viewerTried = true;
+    initViewer();
+    if (viewer) updateViewer();
+  }
+
+  /* ---- the periodic table ---- */
+  function elementReadout(Z) {
+    const d = detailsOf(Z);
+    return d ? d.name + ' (' + d.symbol + ') · Z = ' + d.Z + (d.shorthand ? ' · ' + d.shorthand : '') : '';
+  }
+
+  /* only used if periodic-table.js did not load: a plain list, so Real atoms still works */
+  function fallbackPicker(host, Z) {
+    host.textContent = '';
+    const label = el('label', null, 'Element');
+    label.setAttribute('for', 'table-fallback');
+    const sel = el('select', 'select');
+    sel.id = 'table-fallback';
+    sel.appendChild(el('option', null, 'Choose an element…')).value = '';
+    Chem.ELEMENTS.forEach(function (e) {
+      const o = el('option', null, e.symbol + ' · ' + e.name + ' (Z = ' + e.Z + ')');
+      o.value = String(e.Z);
+      sel.appendChild(o);
+    });
+    sel.value = Z ? String(Z) : '';
+    sel.addEventListener('change', function () { if (sel.value) onTablePick(Number(sel.value)); });
+    host.appendChild(label);
+    host.appendChild(document.createTextNode(' '));
+    host.appendChild(sel);
+    return { setSelected: function (z) { sel.value = z ? String(z) : ''; }, focus: function () { sel.focus(); } };
+  }
+
+  function ensureTable() {
+    const Z = state.loadedZ || state.lastZ || null;
+    $('table-hint').textContent = Z ? 'Selected: ' + elementReadout(Z) : DEFAULT_HINT;   // what the hint falls back to when nothing is hovered
+    if (table) { table.setSelected(Z); return; }
+    const host = $('table-mount');
+    try {
+      table = window.PeriodicTable ? window.PeriodicTable.mount(host, { selectedZ: Z, onSelect: onTablePick, chem: Chem }) : null;
+    } catch (err) { table = null; }
+    if (!table) table = fallbackPicker(host, Z);
+  }
+
+  function onTablePick(Z) {
+    /* the same element again, with the table opened on top of it: that is just Back */
+    if (Z === state.loadedZ && state.mode === 'atom' && history.state && history.state.pt) { history.back(); return; }
+    go({ screen: 'app', mode: 'atom', Z: Z }, 'replace');
+  }
+
+  function tableBack() {
+    if (history.state && history.state.pt) { history.back(); return; }      // we pushed this entry: step back out of it
+    if (state.started) go({ screen: 'app', mode: state.mode, Z: state.loadedZ }, 'replace');
+    else go({ screen: 'start' }, 'replace');                                // the table was opened by its link
+  }
+
+  /* ---- screen changes ----
+     The old screen fades out (LEAVE_MS), then the new one fades in with a short lift (ENTER_MS): only one
+     is ever visible, so nothing is laid out twice and nothing jumps. .is-leaving / .is-entering are
+     state hooks while that runs. Reduced motion: both steps are skipped. */
+  function showScreen(name, opts) {
+    opts = opts || {};
+    const token = ++navToken;
+    const next = screenEl(name);
+    const from = curScreen;
+    curScreen = name;
+
+    SCREENS.forEach(function (n) {               // settle whatever an earlier change left half-way
+      const s = screenEl(n);
+      try { s.getAnimations().forEach(function (a) { a.cancel(); }); } catch (e) { /* no Web Animations */ }
+      s.classList.remove('is-entering', 'is-leaving');
+      s.inert = false;
+    });
+    const quick = !!opts.instant || Motion.reduced();
+    const leaving = SCREENS.map(screenEl).filter(function (s) { return s !== next && !s.hidden; });
+
+    function afterShow(fresh) {
+      if (tipOpen) hideTip(tipOpen);
+      updateChrome();
+      if (name === 'app') {
+        ensureViewer();
+        if (pendingFade) { pendingFade = false; fadeInElectrons(fresh && !quick ? Math.round(ENTER_MS / 2) : 0); }
+      } else if (name === 'table') {
+        ensureTable();
+      }
+      if (fresh && opts.focus !== false) {
+        const h = $(HEADING_OF[name]);
+        if (h) h.focus({ preventScroll: true });
+      }
+      if (opts.announce) announce(opts.announce);
+    }
+
+    function reveal(animate) {
+      if (token !== navToken) return;            // a newer change took over
+      leaving.forEach(function (s) { s.hidden = true; s.classList.remove('is-leaving'); s.inert = false; });
+      const fresh = next.hidden;
+      next.hidden = false;
+      shown = name;
+      if (fresh && from !== null) {
+        try { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); } catch (e) { window.scrollTo(0, 0); }
+      }
+      afterShow(fresh);
+      if (animate && fresh) {
+        next.classList.add('is-entering');
+        Motion.enter(next, { y: 10, duration: ENTER_MS }).then(function () {
+          if (token === navToken) next.classList.remove('is-entering');
+        });
+      }
+    }
+
+    if (from === name && shown === name) { afterShow(false); return; }      // same screen: a mode / element change only
+    if (quick || !leaving.length) { reveal(!quick); return; }
+    leaving.forEach(function (s) { s.classList.add('is-leaving'); s.inert = true; });
+    Promise.all(leaving.map(function (s) { return Motion.exit(s, { duration: LEAVE_MS, hide: false }); }))
+      .then(function () { reveal(true); });
+  }
+
+  /* ---- where we are <-> location.hash ---- */
+  function parseHash(h) {
+    h = h || '';
+    if (h === '#explore') return { screen: 'app', mode: 'explore', Z: null };
+    const m = /^#atom=(\d+)$/.exec(h);
+    if (m) {
+      const Z = Number(m[1]);
+      return Z >= 1 && Z <= Chem.MAX_ELECTRONS ? { screen: 'app', mode: 'atom', Z: Z } : { screen: 'table' };
+    }
+    if (h === '#atom') return { screen: 'table' };
+    return { screen: 'start' };
+  }
+
+  function hashOf(t) {
+    if (t.screen === 'table') return '#atom';
+    if (t.screen === 'app') return t.mode === 'atom' && t.Z ? '#atom=' + t.Z : '#explore';
+    return '';
+  }
+
+  /* how: 'push' (a new history entry), 'replace' (the current one is rewritten), 'none' (we got here by Back / Forward) */
+  function writeHistory(t, how) {
+    if (how === 'none') return;
+    const url = location.href.split('#')[0] + hashOf(t);
+    const st = t.screen === 'table' ? (how === 'push' ? { pt: 1 } : history.state) : null;   // pt: the entry that opened the table
+    try {
+      if (how === 'push' && url !== location.href) history.pushState(st, '', url);
+      else if (url !== location.href || st !== history.state) history.replaceState(st, '', url);
+    } catch (e) { /* file:// in some browsers: the address bar just does not follow */ }
+  }
+
+  function sameTarget(t) {
+    if (t.screen !== curScreen) return false;
+    return t.screen !== 'app' || (t.mode === state.mode && (t.mode !== 'atom' || t.Z === state.loadedZ));
+  }
+
+  /* t: { screen: 'start' } | { screen: 'table' } | { screen: 'app', mode: 'explore' } | { screen: 'app', mode: 'atom', Z } */
+  function go(t, how, opts) {
+    opts = opts || {};
+    if (sameTarget(t)) { writeHistory(t, how === 'push' ? 'replace' : how); return; }
+    if (t.screen === 'app') {
+      state.mode = t.mode === 'atom' ? 'atom' : 'explore';
+      state.started = true;
+      const Z = state.mode === 'atom' ? t.Z : null;
+      if (Z !== state.loadedZ) setElement(Z);
+    }
+    writeHistory(t, how);
+    showScreen(t.screen, { instant: opts.instant, focus: opts.focus, announce: opts.silent ? '' : announceFor(t) });
+  }
+
+  function requestMode(mode) {
+    if (mode === state.mode) return;
+    if (mode === 'explore') { go({ screen: 'app', mode: 'explore' }, 'replace'); return; }
+    if (state.lastZ) { go({ screen: 'app', mode: 'atom', Z: state.lastZ }, 'replace'); return; }
+    updateChrome();                              // nothing chosen yet: the switch stays on Explore while the table is open
+    go({ screen: 'table' }, 'push');
+  }
+
+  /* ---- wiring ---- */
+  document.querySelectorAll('.mode-card').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.getAttribute('data-mode') === 'explore') go({ screen: 'app', mode: 'explore' }, 'push');
+      else go({ screen: 'table' }, 'push');
+    });
   });
+
+  document.querySelectorAll('input[name="app-mode"]').forEach(function (r) {
+    r.addEventListener('change', function () { if (r.checked) requestMode(r.value); });
+  });
+
+  $('element-chip').addEventListener('click', function () { go({ screen: 'table' }, 'push'); });
+  $('table-back').addEventListener('click', tableBack);
+
+  $('app-home').addEventListener('click', function (e) {          // the logo + title: back to the start screen
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if (curScreen !== 'start') go({ screen: 'start' }, 'push');
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !e.defaultPrevented && !tipOpen && curScreen === 'table' && shown === 'table') tableBack();
+  });
+
+  function onLocationChange() { if (booted) go(parseHash(location.hash), 'none'); }
+  window.addEventListener('popstate', onLocationChange);
+  window.addEventListener('hashchange', onLocationChange);
 
   // theme changes recolour the 3-D lobes
   new MutationObserver(function () {
@@ -1122,8 +1463,14 @@
   buildDiagram();
   mountQnTips();
   $('axis-key').textContent = 'Axes: x, y, z (z is up)';
-  initViewer();
-  renderAll();
+  renderAll();            // the 3-D viewer itself is created when the app view first appears (ensureViewer)
+  /* open straight into the view the URL names; the start screen only when there is no hash.
+     index.html already revealed that screen before the first paint, so this is instant and keeps focus where it is */
+  (function () {
+    const t0 = parseHash(location.hash);
+    go(t0, t0.screen === 'start' ? 'none' : 'replace', { instant: true, focus: false, silent: true });
+    booted = true;
+  })();
   /* the axis letters are drawn on a canvas: redraw them once the web fonts have arrived */
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { if (viewer) { viewer.axisKey = ''; updateViewer(); } });
 })();

@@ -57,10 +57,27 @@
   --tip-ink: var(--lav-50);       /* 11.9:1 on --lav-900 */
   --tip-line: var(--lav-400);
 
+  /* ---------------------------------------------------------------
+     PERIODIC TABLE BLOCKS (s / p / d). Same three hues as shells 1, 2 and 5
+     so the palette stays one family. Always paired with the block letter
+     printed in the cell and in the legend, so colour is never the only cue.
+     --------------------------------------------------------------- */
+  --blk-s: var(--shell-1);  --blk-s-soft: var(--shell-1-soft);  --blk-s-ink: var(--shell-1-ink);
+  --blk-p: var(--shell-2);  --blk-p-soft: var(--shell-2-soft);  --blk-p-ink: var(--shell-2-ink);
+  --blk-d: var(--shell-5);  --blk-d-soft: var(--shell-5-soft);  --blk-d-ink: var(--shell-5-ink);
+
   /* layout */
   --page-max: 1480px;
-  --sticky-top: 72px;             /* clears the fixed theme toggle (16px + 44px + gap) */
-  --box: 52px;
+  --pad-x: var(--sp-4);           /* side gutter of the app bar and every screen */
+  --bar-h: 52px;                  /* slim app bar */
+  --sticky-top: 12px;
+  --box: 48px;                    /* orbital box height; the fit layout recomputes it from the screen height */
+  --row-gap: 4px;
+  --ml-h: 14px;                   /* height reserved under a box for its m_l tag */
+  --axis-h: 24px;                 /* the "Energy" axis label row */
+  --leave-dur: 100ms;             /* screen change: old fades out ... (same as app.js LEAVE_MS) */
+  --enter-dur: 170ms;             /* ... new fades in with a short lift (ENTER_MS); 270 ms in all, <= 280 */
+  --lift: 10px;                   /* vertical travel of a screen change (<= 12px) */
   color-scheme: light;
 }
 
@@ -113,19 +130,86 @@ sub, sup {
 sub { top: .32em; }
 sup { top: -.42em; }
 
-/* ---------- header / footer ---------- */
-.site-header { max-width: var(--page-max); margin: 0 auto; padding: var(--sp-6) var(--sp-4) var(--sp-2); position: relative; }
-.site-title { margin: 6px 0 0; }
+/* ---------- app bar: slim, the same on every screen ----------
+   Home link | logo + title | ...... | mode switch | element chip | theme toggle.
+   app.js shows #mode-switch and #element-chip with [hidden], depending on the screen. */
+.app-bar {
+  position: relative; z-index: 40; flex: none;
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4);
+  min-height: var(--bar-h); padding: var(--sp-2) var(--pad-x);
+  background: var(--bg); border-bottom: 1px solid var(--line);
+  --control-h: 40px;               /* the bar's controls are one step smaller than elsewhere */
+}
+.app-bar .top-links { margin: 0; padding: 0; gap: 0; flex: none; }
+.app-bar .home-link { font: var(--t-small); font-weight: var(--w-semi); padding: 6px 0; white-space: nowrap; }
+.app-bar__brand {
+  display: inline-flex; align-items: center; gap: var(--sp-2); width: auto; margin: 0; flex: none;
+  text-decoration: none; color: var(--title); border-radius: var(--r-sm); line-height: 1;
+}
+.app-bar__brand img { height: 30px; width: auto; }
+.app-bar__title { font: var(--w-display) 1.0625rem/1.2 var(--font-display); letter-spacing: var(--tr-heading); color: var(--title); white-space: nowrap; }
+.app-bar__brand:hover .app-bar__title { text-decoration: underline; text-underline-offset: 3px; }
+.app-bar__tools { margin-left: auto; display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); min-width: 0; }
+/* the theme toggle lives in the bar here (the design system fixes it to the corner) */
+.app-bar .theme-toggle { position: static; flex: none; width: 38px; height: 38px; font-size: 1.05rem; box-shadow: none; }
+
+/* mode switch: a quiet, soft segmented control. The saturated segment of the app view is "Select by";
+   the chosen mode is shown by a soft fill, a ring and a check mark, never by colour alone. */
+.mode-switch { border: 0; margin: 0; padding: 0; min-width: 0; }
+.mode-switch .seg { flex-wrap: nowrap; }
+.mode-switch .seg > label { padding: 4px var(--sp-4); font-size: .9375rem; white-space: nowrap; }
+.mode-switch .seg--strong > label:has(input:checked) {
+  background: var(--primary-soft); color: var(--primary-soft-ink); box-shadow: inset 0 0 0 1px var(--primary);
+}
+.mode-switch .seg > label:has(input:checked)::before { content: "\2713"; margin-right: 6px; font-size: .85em; }
+
+/* element chip: "Fe · Z = 26" + a "change" affordance */
+.element-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 38px; padding: 3px 4px 3px var(--sp-4);
+  font: var(--t-body-strong); line-height: 1.2; white-space: nowrap;
+  color: var(--ink); background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+  cursor: pointer; transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.element-chip:hover { border-color: var(--primary); box-shadow: var(--shadow-1); }
+.element-chip__text { font-variant-numeric: tabular-nums; }
+.element-chip__change {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px var(--sp-3); border-radius: var(--r-pill);
+  font: var(--t-small); font-weight: var(--w-semi); line-height: 1.3;
+  color: var(--primary-soft-ink); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary);
+  transition: background-color var(--dur) var(--ease);
+}
+.element-chip__change::after { content: "\25BE"; font-size: .85em; }       /* small chevron: it opens the table */
+.element-chip:hover .element-chip__change { background: var(--card-2); }
 
 .site-footer {
-  max-width: var(--page-max); margin: var(--sp-7) auto; padding: var(--sp-4) var(--sp-4) 0;
+  max-width: var(--page-max); margin: var(--sp-6) auto; padding: var(--sp-4) var(--pad-x) 0;
   border-top: 1px solid var(--line);
 }
 .site-footer p { color: var(--muted); }
 
+/* ---------- screens: start | table | app. Exactly one is visible; app.js uses [hidden] for the rest ----------
+   All screens share ONE grid cell, so a change never moves the page: whichever is visible (or, for a
+   moment, the leaving and the entering one together) occupies the same box. The fade is vertical only
+   (<= 12px lift) and never touches the width, so there is no horizontal movement or scroll; the main
+   area clips the lift (overflow: clip does not make a scroll container, so the docked viewer still sticks).
+   app.js also runs the same fade through the Web Animations API (motion.js, 100 ms out / 170 ms in);
+   these keyframes use the same timings so the two never disagree, and cover the case without it. */
+.app-main { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; overflow: clip; }
+.screen { grid-area: 1 / 1; min-width: 0; min-height: 0; }
+.screen :is(h1, h2, [tabindex="-1"]):focus { outline: none; box-shadow: none; }   /* programmatic focus on a heading: announced, but no ring */
+.screen.is-entering { animation: screen-in var(--enter-dur) var(--ease) both; }
+.screen.is-leaving { pointer-events: none; animation: screen-out var(--leave-dur) var(--ease) both; }
+@keyframes screen-in  { from { opacity: 0; transform: translateY(var(--lift)); } to { opacity: 1; transform: none; } }
+@keyframes screen-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: none; } }
+/* reduced motion: design-system.css shrinks every animation to .01ms (animationend still fires), so
+   the change is instant and the old screen ends fully transparent. */
+@media (prefers-reduced-motion: reduce) {
+  .screen.is-entering, .screen.is-leaving { animation-duration: .01ms !important; animation-delay: 0s !important; }
+}
+
 /* ---------- layout: one column (phone) ---------- */
 .viz-layout {
-  max-width: var(--page-max); margin: 0 auto; padding: var(--sp-2) var(--sp-4) 0;
+  width: 100%; max-width: var(--page-max); margin: 0 auto; padding: var(--sp-2) var(--pad-x) 0;
   display: flex; flex-direction: column; gap: var(--sp-4);
 }
 .card { padding: var(--sp-4); min-width: 0; }
@@ -168,9 +252,9 @@ sup { top: -.42em; }
     box-shadow: var(--shadow-2);
   }
   #viewer-legend { flex: 0 1 auto; min-height: 4.5rem; overflow-y: auto; align-content: flex-start; scrollbar-width: thin; }
-  .site-header, .site-footer { padding-left: var(--sp-5); padding-right: var(--sp-5); }
+  .site-footer { padding-left: var(--sp-5); padding-right: var(--sp-5); }
   .card { padding: var(--sp-5); }
-  :root { --box: 48px; }
+  :root { --pad-x: var(--sp-5); --box: 48px; }
 }
 
 /* ---------- layout: three columns (desktop) ---------- */
@@ -215,24 +299,38 @@ sup { top: -.42em; }
 [data-n="4"], [data-shell="4"] { --sh: var(--shell-4); --sh-soft: var(--shell-4-soft); --sh-ink: var(--shell-4-ink); }
 [data-n="5"], [data-shell="5"] { --sh: var(--shell-5); --sh-soft: var(--shell-5-soft); --sh-ink: var(--shell-5-ink); }
 
-/* ---------- energy diagram ---------- */
+/* ---------- energy diagram ----------
+   One row per subshell: [subshell label] [n tag] [orbital boxes]; the m_l tag hangs under its box.
+   Every size derives from ONE number, --box (the box height). Scrolling layouts leave it at a fixed value
+   (48px, 44px on a phone); the no-scroll "fit" layout below recomputes it from the height of the diagram
+   area, so the 11 rows always add up to exactly the room the card has. */
 #energy-diagram {
-  position: relative; display: flex; flex-direction: column; gap: var(--sp-1);
-  padding-left: 44px;              /* room for the axis arrow */
+  --axis-pad: 44px;                /* room for the vertical energy axis */
+  --row-pad: 6px;                  /* vertical padding inside a row */
+  --name-zone: 15px;               /* top part of a box kept for its small orbital name */
+  --name-fs: .75rem;               /* ... and its text size */
+  --arrow-fs: 1.45rem;             /* electron arrow glyph */
+  --ml-fs: var(--fs-label);        /* m_l tag size */
+  --box-w: var(--box);             /* box width (the fit layout narrows it if a row would not fit) */
+  position: relative; display: flex; flex-direction: column; gap: var(--row-gap);
+  padding-left: var(--axis-pad);
 }
-.energy-axis { position: relative; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin: 0 0 6px -44px; color: var(--muted); background: var(--card); }
+.energy-axis {
+  position: relative; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center;
+  min-height: var(--axis-h); margin: 0 0 var(--sp-1) calc(-1 * var(--axis-pad)); color: var(--muted); background: var(--card);
+}
 .energy-axis .energy-arrow { font: var(--t-label); color: var(--ink); letter-spacing: var(--tr-label); text-transform: uppercase; min-width: 40px; text-align: center; }
-#energy-diagram::before {
-  content: ""; position: absolute; left: 19px; top: 0; bottom: 6px; width: 2px; background: var(--muted);
+#energy-diagram::before {          /* the axis line */
+  content: ""; position: absolute; left: calc(var(--axis-pad) / 2 - 1px); top: 0; bottom: 6px; width: 2px; background: var(--muted);
 }
-.energy-axis + .subshell-row::after {
-  content: ""; position: absolute; left: -37px; top: -6px;
+.energy-axis + .subshell-row::after {   /* its arrow head, centred on the line, tip just above the top row */
+  content: ""; position: absolute; left: calc(var(--axis-pad) / -2 - 7px); top: -6px;
   border: 7px solid transparent; border-top: 0; border-bottom: 11px solid var(--muted);
 }
 
 .subshell-row {
   position: relative; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 8px;
-  padding: 8px 6px 22px 10px;     /* bottom room for mL tags */
+  padding: var(--row-pad) 6px var(--row-pad) 10px;
   background: var(--sh-soft, var(--bg-tint));
   border-left: 5px solid var(--sh, var(--line-strong));
   border-radius: var(--r-sm);
@@ -240,13 +338,15 @@ sup { top: -.42em; }
 }
 
 .subshell-label, .shell-tag {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+  height: var(--box); padding: 0 8px;
   font: var(--t-body-strong); cursor: pointer; border-radius: var(--r-sm);
   border: 1px solid var(--line-strong); background: var(--card); color: var(--ink);
-  min-height: 44px; transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
-.subshell-label { min-width: 48px; padding: 0 10px; font-family: var(--font-display); font-size: 1.2rem; }
+.subshell-label { min-width: 48px; font-family: var(--font-display); font-size: clamp(1rem, calc(var(--box) * .4), 1.3rem); }
 .shell-tag {
-  min-width: 50px; padding: 0 8px; font-family: var(--font-mono); font-size: .9375rem; font-weight: var(--w-semi);
+  min-width: 50px; font-family: var(--font-mono); font-size: clamp(.75rem, calc(var(--box) * .3), .9375rem); font-weight: var(--w-semi);
   color: var(--sh-ink, var(--muted)); border: 2px dashed var(--sh, var(--line-strong));
 }
 .subshell-label:hover, .shell-tag:hover { background: var(--primary-soft); border-color: var(--primary); }
@@ -256,45 +356,50 @@ sup { top: -.42em; }
 }
 .subshell-label.is-context, .shell-tag.is-context { background: var(--bg-tint); }
 
-.orbital-boxes { display: flex; flex-wrap: wrap; gap: 6px; }
+.orbital-boxes { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 
 .orbital-box {
   position: relative; flex: none;
-  width: var(--box); height: var(--box); padding: 0;
+  width: var(--box-w); height: var(--box); padding: 0;
+  margin-bottom: var(--ml-h);       /* room for the m_l tag hanging under the box */
   background: var(--box-bg); color: var(--ink);
   border: 2px solid var(--sh, var(--muted)); border-radius: var(--r-sm); cursor: pointer;
   font: inherit;
   transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 .orbital-box::before {           /* up/down half divider */
-  content: ""; position: absolute; top: 15px; bottom: 5px; left: 50%; width: 0;
+  content: ""; position: absolute; top: var(--name-zone); bottom: 4px; left: 50%; width: 0;
   border-left: 1px dashed var(--line-strong);
 }
 .orbital-box:hover { border-color: var(--primary); transform: translateY(-1px); }
 
-/* the electron arrows live in the lower part of the box; the orbital name sits above them */
+/* the electron arrows live in the lower part of the box; the orbital name sits above them.
+   Opacity is eased, so an arrow that app.js fades in or out (or marks .is-new / .is-leaving) changes softly. */
 .orbital-box .electron {
-  position: absolute; top: 13px; bottom: 0; width: 50%;
+  position: absolute; top: calc(var(--name-zone) - 3px); bottom: -1px; width: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 0; line-height: 1; color: var(--electron); pointer-events: none;
+  transition: opacity var(--dur) var(--ease);
 }
-.orbital-box .electron::before { font-size: 1.45rem; font-weight: var(--w-semi); font-family: var(--font-body); }
-.orbital-box .electron.is-new { animation: fade var(--dur) var(--ease); }   /* the electron just added drops in */
+.orbital-box .electron::before { font-size: var(--arrow-fs); font-weight: var(--w-semi); font-family: var(--font-body); }
+.orbital-box .electron.is-new { animation: electron-in var(--dur) var(--ease) both; }   /* an electron just added fades in (opacity only: it never jumps) */
+.orbital-box .electron.is-leaving { opacity: 0; }
 .orbital-box .electron[data-spin="up"]   { left: 0; }
 .orbital-box .electron[data-spin="down"] { right: 0; }
 .orbital-box .electron[data-spin="up"]::before   { content: "\2191"; }
 .orbital-box .electron[data-spin="down"]::before { content: "\2193"; }
+@keyframes electron-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* text under a box: the m_l tag. Subscripts inside never grow it. */
 .ml-tag {
-  position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%);
-  font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-label); line-height: 1.2;
+  position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--ml-fs); line-height: 1.15;
   color: var(--ink-2); white-space: nowrap; pointer-events: none;
 }
 /* the small orbital name inside the top of every box (real <sub> inside; aria-hidden) */
 .orbital-box .orbital-name, .orbital-box .box-label {
-  position: absolute; left: 50%; top: 2px; transform: translateX(-50%); max-width: 100%;
-  font: var(--w-semi) .75rem/13px var(--font-body); color: var(--ink-2); white-space: nowrap; pointer-events: none;
+  position: absolute; left: 50%; top: 1px; transform: translateX(-50%); max-width: 100%;
+  font: var(--w-semi) var(--name-fs)/var(--name-zone) var(--font-body); color: var(--ink-2); white-space: nowrap; pointer-events: none;
 }
 .orbital-name sub, .box-label sub { font-size: .82em; top: .3em; letter-spacing: 0; }
 
@@ -307,21 +412,21 @@ sup { top: -.42em; }
    rows:       is-selected = solid inner frame, is-context = dashed inner frame */
 .orbital-box.is-context { border-color: var(--primary); background: var(--bg-tint); }
 .orbital-box.is-selected {
-  border: 4px solid var(--primary); background: var(--primary-soft);
-  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary);
+  border: var(--sel-bw, 4px) solid var(--primary); background: var(--primary-soft);
+  box-shadow: 0 0 0 var(--ring-gap, 2px) var(--card), 0 0 0 calc(var(--ring-gap, 2px) + var(--ring-w, 2px)) var(--primary);
 }
 .orbital-box.is-selected::after, .orbital-box.is-focus::after {      /* corner badge: outside the box, so it never covers the name */
-  position: absolute; top: -10px; width: 18px; height: 18px; border-radius: 50%;
+  position: absolute; top: calc(var(--badge, 18px) / -2 - 1px); width: var(--badge, 18px); height: var(--badge, 18px); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font: var(--w-semi) .75rem/1 var(--font-body); color: var(--primary-soft-ink);
+  font: var(--w-semi) calc(var(--badge, 18px) * .66)/1 var(--font-body); color: var(--primary-soft-ink);
   background: var(--primary-soft); border: 1.5px solid var(--primary); box-sizing: border-box; pointer-events: none;
 }
-.orbital-box.is-selected::after { content: "\2713"; right: -10px; }
+.orbital-box.is-selected::after { content: "\2713"; right: calc(var(--badge, 18px) / -2 - 1px); }
 .orbital-box.is-focus {
-  border: 5px double var(--primary); background: var(--primary-soft);
-  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary);
+  border: calc(var(--sel-bw, 4px) + 1px) double var(--primary); background: var(--primary-soft);
+  box-shadow: 0 0 0 var(--ring-gap, 2px) var(--card), 0 0 0 calc(var(--ring-gap, 2px) + var(--ring-w, 2px)) var(--primary);
 }
-.orbital-box.is-focus::after { content: "\25C6"; left: -10px; font-size: .6rem; }
+.orbital-box.is-focus::after { content: "\25C6"; left: calc(var(--badge, 18px) / -2 - 1px); font-size: calc(var(--badge, 18px) * .5); }
 .orbital-box.is-dimmed:not(.is-selected):not(.is-focus):not(.is-context) { border-style: dashed; opacity: .7; }
 .subshell-row.is-dimmed { background: color-mix(in srgb, var(--sh-soft, var(--bg-tint)) 55%, var(--card)); }   /* paler tint, text keeps full contrast */
 .subshell-row.is-selected { box-shadow: inset 0 0 0 2px var(--primary); }
@@ -331,14 +436,15 @@ sup { top: -.42em; }
 
 /* ---------- viewer ---------- */
 .canvas-wrap { position: relative; flex: none; }
+/* !important on the heights: app.js may set an inline 360px if the canvas is measured while its screen is hidden */
 #orbital-canvas {
-  position: relative; width: 100%; height: clamp(120px, 28vh, 260px);
+  position: relative; width: 100%; height: clamp(120px, 28vh, 260px) !important;
   background: var(--viewer-bg); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden;
   touch-action: none;
 }
 #orbital-canvas canvas { display: block; width: 100% !important; height: 100% !important; }
-@media (min-width: 900px) { #orbital-canvas { height: clamp(240px, 46vh, 560px); } }
-@media (min-width: 900px) and (max-height: 760px) { #orbital-canvas { height: clamp(220px, 44vh, 560px); } }
+@media (min-width: 900px) { #orbital-canvas { height: clamp(240px, 46vh, 560px) !important; } }
+@media (min-width: 900px) and (max-height: 760px) { #orbital-canvas { height: clamp(220px, 44vh, 560px) !important; } }
 #axis-key {
   position: absolute; top: var(--sp-2); left: var(--sp-2); z-index: 2; pointer-events: none;
   font: var(--t-mono); color: var(--ink);
@@ -432,18 +538,31 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
 #qn-rules li { margin-bottom: 6px; }
 #qn-rules li::marker { color: var(--primary); }
 
-#config-panel { border-top: 1px solid var(--line); padding-top: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
-.element-row { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); }
-.element-row label, label[for="element-select"] { font: var(--t-body-strong); color: var(--ink); }
-#element-select { width: 100%; }
-#electron-count:empty, #config-notation:empty, #config-status:empty { display: none; }
-#electron-count { margin: 0; font: var(--t-quantity); font-weight: var(--w-semi); font-size: 1.1rem; color: var(--ink-2); }
-#config-notation {
-  margin: 0; font: var(--t-quantity); font-size: 1.05rem; color: var(--ink); background: var(--card-2);
-  border-radius: var(--r-md); padding: 10px 12px; overflow-wrap: anywhere; max-width: none;
+/* real-atom summary (#config-panel is [hidden] in Explore mode):
+   name + symbol chip, "Z = 26 · 26 electrons", full / shorthand configuration, ground-state note */
+#config-panel { border-top: 1px solid var(--line); padding-top: var(--sp-3); margin-top: var(--sp-1); }
+.element-summary { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.element-title { display: flex; align-items: center; flex-wrap: wrap; gap: 2px var(--sp-3); margin: 0; color: var(--ink); }
+.element-name { font: var(--w-display) 1.375rem/1.2 var(--font-display); letter-spacing: var(--tr-heading); color: var(--ink); }
+.element-symbol {
+  display: inline-flex; align-items: center; padding: 1px var(--sp-3); border-radius: var(--r-pill);
+  font: var(--w-semi) 1rem/1.4 var(--font-mono);
+  color: var(--primary-soft-ink); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary);
 }
+.element-symbol:empty, .element-name:empty { display: none; }
+#electron-count:empty, #config-notation:empty, #config-status:empty { display: none; }
+#electron-count { margin: 0; max-width: none; font: var(--t-quantity); font-weight: var(--w-semi); font-size: .9375rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+#config-notation {
+  display: flex; flex-direction: column; gap: 2px; margin: 0; color: var(--ink); background: var(--card-2);
+  border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); overflow-wrap: anywhere; max-width: none;
+}
+.config-line { display: grid; grid-template-columns: 5.25rem minmax(0, 1fr); align-items: baseline; gap: 0 var(--sp-2); margin: 0; max-width: none; line-height: 1.4; }
+.config-key { font: var(--t-label); letter-spacing: var(--tr-label); text-transform: uppercase; color: var(--muted); }
+.config-val { font: var(--t-quantity); font-size: 1rem; font-weight: var(--w-semi); font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+.valence-note { margin: 0; max-width: none; font: var(--t-small); color: var(--muted); }
+.valence-note:empty, .valence-note[hidden] { display: none; }
 #config-status { display: flex; flex-direction: column; gap: 6px; }
-.status-line { margin: 0; padding: 8px 12px; border-radius: 0 var(--r-md) var(--r-md) 0; border-left: 3px solid var(--primary); background: var(--primary-soft); color: var(--ink); max-width: none; }
+.status-line { margin: 0; padding: 6px 12px; font: var(--t-small); line-height: 1.45; border-radius: 0 var(--r-md) var(--r-md) 0; border-left: 3px solid var(--primary); background: var(--primary-soft); color: var(--ink); max-width: none; }
 .status-line.is-ok { background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent-soft-ink); }
 .status-line.is-warn { background: var(--warn-soft); border-left-color: var(--warn); color: var(--warn-ink); }
 .status-line.is-error { background: var(--danger-soft); border-left-color: var(--danger); color: var(--danger); }
@@ -464,6 +583,140 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
 #simplifications ul { margin: var(--sp-2) 0 0; padding-left: 1.2em; }
 #simplifications li { margin-bottom: 6px; max-width: none; }
 #simplifications li::marker { color: var(--primary); }
+
+/* =============================================================
+   START SCREEN  -  two equal choices, centred, calm
+   #screen-start > .start-inner > eyebrow, h1, lead, .mode-cards > 2 x button.mode-card
+   Both cards carry the same weight (a card surface, a coloured top edge, a small glyph drawn in CSS).
+   No card is saturated at rest; the one saturated element is the arrow chip of the card that is hovered
+   or focused. The choice is also shown by words and shapes, not by colour alone.
+   ============================================================= */
+.screen--start {
+  display: grid; place-items: center;
+  min-height: min(70dvh, 680px);
+  padding: var(--sp-6) var(--pad-x) var(--sp-7);
+}
+.start-inner { width: min(100%, 900px); display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--sp-2); }
+.screen--start .screen-title { margin: 0; font: var(--t-display); letter-spacing: var(--tr-display); color: var(--title); }
+.screen-lead { margin: 0 0 var(--sp-5); max-width: none; font: var(--w-normal) 1.1875rem/1.5 var(--font-body); color: var(--muted); }
+
+.mode-cards { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-5); }
+.mode-card {
+  --wash: var(--card);             /* both cards sit on the plain card surface: equal weight */
+  --tile: var(--primary-soft);
+  align-items: center; justify-content: center; text-align: center; gap: var(--sp-3);
+  min-height: clamp(250px, 38dvh, 340px); padding: var(--sp-6) var(--sp-5) var(--sp-5);
+  border-left: 1px solid var(--line-strong); border-top: 4px solid var(--edge);
+  font-family: var(--font-body);
+}
+.mode-card.choice-card--grn { --tile: var(--accent-soft); }
+.mode-card .choice-verb { font: var(--w-display) 1.625rem/1.2 var(--font-display); letter-spacing: var(--tr-heading); }
+.mode-card .choice-desc { max-width: 30ch; font: var(--w-normal) 1.0625rem/1.5 var(--font-body); color: var(--ink); }
+
+/* glyph (the ::before): what you will see, drawn from gradients and text only */
+.mode-card::before {
+  content: ""; flex: none; display: flex; align-items: center; justify-content: center;
+  width: 92px; height: 92px; border-radius: var(--r-lg);
+  background-color: var(--tile); box-shadow: inset 0 0 0 1px var(--edge);
+}
+/* Explore orbitals: a p orbital, the two lobes in the viewer's own + / - colours */
+.mode-card[data-mode="explore"]::before {
+  background:
+    radial-gradient(ellipse 17% 20% at 50% 30%, var(--orbital-pos) 0 96%, transparent 100%),
+    radial-gradient(ellipse 17% 20% at 50% 70%, var(--orbital-neg) 0 96%, transparent 100%),
+    linear-gradient(var(--edge), var(--edge)) 50% 50% / 62% 2px no-repeat,
+    var(--tile);
+}
+/* Real atoms: an element tile. The text is decorative, so it carries empty alt text where supported */
+.mode-card[data-mode="atom"]::before {
+  content: "Fe"; content: "Fe" / "";
+  font: var(--w-display) 2.125rem/1 var(--font-display); color: var(--wash-ink, var(--accent-soft-ink)); letter-spacing: 0;
+}
+/* the arrow chip (the ::after): says "this goes somewhere" */
+.mode-card::after {
+  content: "\2192"; content: "\2192" / "";
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 34px; margin-top: var(--sp-1); border-radius: var(--r-pill);
+  font: var(--w-semi) 1.25rem/1 var(--font-body); color: var(--wash-ink); background: var(--tile); box-shadow: inset 0 0 0 1px var(--edge);
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.mode-card:hover::after, .mode-card:focus-visible::after { background: var(--primary); color: var(--primary-ink); box-shadow: none; transform: translateX(2px); }
+.mode-card.choice-card--grn:hover::after, .mode-card.choice-card--grn:focus-visible::after { background: var(--accent); color: var(--accent-ink); }
+.mode-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+
+/* =============================================================
+   TABLE SCREEN  -  a wide card titled "Periodic table selector"
+   #screen-table > .table-card > .table-card__head h1 | #table-mount | .table-card__foot (#table-back + #table-hint)
+   The grid is periodic-table.js (.pt-*). Cells are SQUARES whose size comes from the width of #table-mount
+   (and the screen height), so 18 columns fit ~1100 wide at 1280x800 (cells ~58px) and shrink with the screen.
+   ============================================================= */
+.screen--table {
+  display: grid; place-items: center;
+  min-height: min(70dvh, 680px);
+  padding: var(--sp-5) var(--pad-x);
+}
+.table-card { width: min(100%, 1180px); display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4) var(--sp-5); }
+@media (min-width: 1600px) { .table-card { width: min(100%, 1300px); } }   /* big screens: cells grow up to 64px */
+.table-card__head { margin: 0; min-height: 0; }
+.table-card .screen-title { margin: 0; font: var(--w-display) 1.625rem/1.25 var(--font-display); letter-spacing: var(--tr-heading); color: var(--ink); }
+.table-card__foot { display: flex; align-items: center; gap: var(--sp-4); }
+.table-card__foot .btn { flex: none; }
+.table-hint {
+  flex: 1 1 auto; min-width: 0; margin: 0; max-width: none; min-height: 40px; padding: 6px var(--sp-4);
+  display: flex; align-items: center;
+  font: var(--t-quantity); font-size: .9375rem; color: var(--ink);
+  background: var(--bg-tint); border: 1px solid var(--line); border-radius: var(--r-md);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+#table-mount {
+  container-type: inline-size;
+  --pt-gap: 3px; --pt-label-w: 1.75rem; --pt-min-width: 0px;
+  --pt-cell: clamp(30px, min(calc((100cqw - var(--pt-label-w) - 17 * var(--pt-gap) - 12px) / 18), calc((100vh - 330px) / 5.3), calc((100dvh - 330px) / 5.3)), 64px);
+}
+.pt { padding: 4px; overflow-x: auto; scrollbar-width: thin; }
+.pt-table {
+  width: max-content; min-width: 0; margin-inline: auto; gap: var(--pt-gap);
+  grid-template-columns: var(--pt-label-w) repeat(18, var(--pt-cell));
+  grid-template-rows: auto repeat(5, var(--pt-cell));
+}
+.pt-colhead, .pt-rowhead { font: var(--t-label); font-variant-numeric: tabular-nums; color: var(--muted); }
+.pt-colhead { align-items: flex-end; padding-bottom: 2px; }
+
+.pt-cell[data-block="s"], .pt-key-swatch[data-block="s"] { --b: var(--blk-s); --b-soft: var(--blk-s-soft); --b-ink: var(--blk-s-ink); }
+.pt-cell[data-block="p"], .pt-key-swatch[data-block="p"] { --b: var(--blk-p); --b-soft: var(--blk-p-soft); --b-ink: var(--blk-p-ink); }
+.pt-cell[data-block="d"], .pt-key-swatch[data-block="d"] { --b: var(--blk-d); --b-soft: var(--blk-d-soft); --b-ink: var(--blk-d-ink); }
+
+.pt-cell {
+  min-height: 0; border-radius: 8px; cursor: pointer; font-family: var(--font-body);
+  color: var(--b-ink, var(--ink)); background: var(--b-soft, var(--card)); border: 1px solid var(--b, var(--line-strong));
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pt-cell:hover { transform: translateY(-1px); border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary), var(--shadow-1); z-index: 1; }
+.pt-sym { font: var(--w-semi) clamp(.8125rem, calc(var(--pt-cell) * .36), 1.375rem)/1.1 var(--font-display); }
+.pt-num { position: absolute; top: 3px; left: 4px; font: var(--w-medium) clamp(.625rem, calc(var(--pt-cell) * .2), .8125rem)/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.pt-block { left: 5px; bottom: 3px; font: italic var(--w-semi) clamp(.625rem, calc(var(--pt-cell) * .2), .8125rem)/1 var(--font-mono); color: var(--b-ink, var(--ink-2)); }
+.pt-flag { top: 2px; right: 4px; font-size: clamp(.625rem, calc(var(--pt-cell) * .2), .8125rem); color: var(--warn-ink); }
+
+/* selected: inverted fill + a ring in the card colour and the primary + a check mark. Never colour alone. */
+.pt-cell.is-selected, .pt-cell[aria-pressed="true"] {
+  color: var(--primary-ink); background: var(--primary); border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary); z-index: 2;
+}
+.pt-cell.is-selected :is(.pt-num, .pt-block, .pt-flag), .pt-cell[aria-pressed="true"] :is(.pt-num, .pt-block, .pt-flag) { color: inherit; }
+.pt-cell.is-selected::after, .pt-cell[aria-pressed="true"]::after {
+  content: "\2713"; position: absolute; right: 4px; bottom: 2px; font: var(--w-bold) clamp(.625rem, calc(var(--pt-cell) * .22), .875rem)/1 var(--font-body);
+}
+.pt-cell.is-selected:focus-visible, .pt-cell[aria-pressed="true"]:focus-visible { outline-offset: 5px; }
+
+/* legend */
+.pt-legend { margin: var(--sp-3) 0 0; align-items: center; gap: var(--sp-1) var(--sp-5); }
+.pt-legend li { font: var(--t-small); max-width: none; color: var(--ink); }
+.pt-key-swatch { inline-size: 24px; block-size: 24px; color: var(--b-ink); background: var(--b-soft); border: 1px solid var(--b); }
+.pt-key-swatch .pt-block { position: static; font: italic var(--w-bold) .8125rem/1 var(--font-mono); }
+.pt-key .pt-flag { position: static; font-size: 1rem; color: var(--warn-ink); }
+.pt-key-axes { margin-left: auto; color: var(--muted); }
+@media (max-width: 760px) { .pt-key-axes { display: none; } }
 
 /* ---------- tooltips (info button + popover), markup built by app.js ----------
    <span class="tip-wrap"><button class="info-tip">i</button><span class="tip-pop" role="tooltip" hidden>..</span></span>
@@ -530,20 +783,180 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
 /* ---------- compact boxes on narrow phones so rows never overflow at 360px ---------- */
 @media (max-width: 480px) {
   :root { --box: 44px; }
-  #energy-diagram { padding-left: 32px; }
-  .energy-axis { margin-left: -32px; }
-  #energy-diagram::before { left: 13px; }
-  .energy-axis + .subshell-row::after { left: -31px; }
+  #energy-diagram { --axis-pad: 32px; --arrow-fs: 1.3rem; }
   .subshell-row { padding-left: 8px; padding-right: 4px; }
-  .orbital-box .electron::before { font-size: 1.3rem; }
   .shell-tag { min-width: 46px; }
+  .app-bar { gap: var(--sp-1) var(--sp-3); }
+  .app-bar .top-links, .app-bar__title { display: none; }   /* the logo alone is enough on a phone */
+  .mode-cards { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .mode-card { min-height: 0; padding: var(--sp-5) var(--sp-4) var(--sp-4); }
+  .table-card { padding: var(--sp-4); }
+}
+@media (max-width: 899px) {
+  .app-bar__title { display: none; }               /* the logo alone keeps the bar on one line on a tablet in portrait */
+}
+@media (max-width: 640px) {
+  /* app bar on a phone: logo + theme toggle on the first line, mode switch + element chip on the second */
+  .app-bar__brand { flex: 1 1 auto; }
+  .app-bar .theme-toggle { order: 2; }
+  .app-bar__tools { order: 3; flex: 1 1 100%; margin-left: 0; }
+  .mode-switch .seg > label { padding: 4px var(--sp-3); }
+  .element-chip__change { font-size: 0; padding: 3px var(--sp-2); }          /* just the chevron; the chip still says "change" to assistive tech */
+  .element-chip__change::after { font-size: .875rem; }
+}
+@media (max-width: 760px) {
+  .mode-cards { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+  .mode-card { min-height: 0; }
+  .table-card__foot { flex-wrap: wrap; }
+  .table-hint { flex-basis: 100%; white-space: normal; }
 }
 
 /* a short, wide phone (landscape): keep the docked viewer small */
 @media (max-width: 899px) and (max-height: 520px) {
-  #orbital-canvas { height: clamp(110px, 38vh, 220px); }
+  #orbital-canvas { height: clamp(110px, 38vh, 220px) !important; }
 }
 
+/* =============================================================
+   FIT LAYOUT  -  the whole app view with NO page scroll
+   Landscape screens from 1000 x 700 up (1280x720, 1280x800, 1366x768, 1440x900, 1920x1080, a landscape
+   tablet). The page is exactly one viewport tall; the app bar is slim, the three cards share the rest, and
+   the energy diagram sizes its 11 rows from the room it really has:
+       --box = (diagram height - axis row - gaps) / 11  -  row padding  -  m_l tag
+   Box, labels, arrows, tags and selection rings all scale from that one number. Nothing is clipped, and
+   nothing scrolls, in the diagram. Narrower or portrait screens keep the scrolling layout above (with the
+   docked / sticky viewer).
+   ============================================================= */
+@media (min-width: 1000px) and (min-height: 700px) and (min-aspect-ratio: 6/5) {
+  :root { --bar-h: 48px; --row-gap: 2px; --axis-h: 20px; --ml-h: 12px; --fit-gap: 12px; }
+
+  body { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+  .app-bar { padding-block: 4px; }
+  .app-main { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .site-footer { display: none; }
+  .screen { height: 100%; }
+  .screen--start, .screen--table { min-height: 0; }
+  .screen--start { padding-block: var(--sp-5); }
+  .screen--table { padding-block: var(--sp-4); }
+
+  /* --- the three cards --- */
+  #screen-app {
+    display: grid; align-items: stretch; gap: var(--fit-gap);
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, .8fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "diagram info viewer";
+    max-width: 1760px; padding: 6px var(--pad-x) 12px;
+  }
+  #screen-app > .card { padding: 10px 14px; min-height: 0; box-shadow: var(--shadow-2); }
+  .card-head { min-height: 32px; margin-bottom: 6px; gap: var(--sp-2); }
+  .card-title { font: var(--w-display) 1.125rem/1.25 var(--font-display); }
+  .step { width: 24px; height: 24px; font-size: .75rem; }
+  .card-head .btn { min-height: 30px; padding: 2px 14px; font-size: .9375rem; }
+
+  /* --- 1 · energy diagram: title + "Select by" on one line, hint under it, the 11 rows fill the rest --- */
+  #panel-diagram {
+    display: grid; column-gap: var(--sp-3);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "head head" "seg seg" "hint hint" "diagram diagram";
+  }
+  #panel-diagram > .card-head { grid-area: head; }
+  .slice-bar { display: contents; }
+  #slice-mode { grid-area: seg; }
+  #slice-mode legend {   /* still names the group for screen readers; the segments say the rest */
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  #slice-mode .seg { --control-h: 38px; flex-wrap: nowrap; }
+  #slice-mode .seg > label { padding: 2px 14px; font-size: .9375rem; }
+  .slice-hint { grid-area: hint; max-width: none; margin: 4px 0 6px; font-size: .8125rem; line-height: 1.3; }
+  #energy-diagram { grid-area: diagram; min-height: 0; }
+
+  /* --- sizes: fallback from the viewport height, then the exact version from the diagram's own size --- */
+  #energy-diagram {
+    --axis-pad: 32px; --row-pad: 3px; --ring-gap: 1px; --ring-w: 2px; --sel-bw: 3px; --badge: 14px;
+    --ml-fs: .6875rem;
+    --box: clamp(28px, calc((100dvh - 340px) / 11 - 2 * var(--row-pad) - var(--ml-h) - var(--row-gap)), 64px);
+    --box-w: clamp(30px, calc(var(--box) * 1.15), 72px);
+    --name-zone: clamp(11px, calc(var(--box) * .34), 16px);
+    --name-fs: clamp(.625rem, calc(var(--box) * .3), .8125rem);
+    --arrow-fs: clamp(.9375rem, calc((var(--box) - var(--name-zone)) * .95), 1.9rem);
+  }
+  @supports (width: 1cqw) {
+    #energy-diagram {
+      container-type: size;
+      --box: clamp(28px, calc((100cqh - var(--axis-h) - var(--sp-1) - 11 * var(--row-gap)) / 11 - 2 * var(--row-pad) - var(--ml-h)), 64px);
+      --box-w: clamp(30px, min(calc(var(--box) * 1.15), calc((100cqw - 150px) / 5)), 72px);
+    }
+  }
+  .subshell-row { flex-wrap: nowrap; gap: 6px; padding-right: 6px; }
+  .orbital-boxes { flex-wrap: nowrap; gap: 5px; }
+  .subshell-label { min-width: 38px; padding: 0 6px; }
+  .shell-tag { min-width: 44px; padding: 0 6px; }
+  .energy-axis { flex-wrap: nowrap; }
+  .orbital-box:hover { transform: none; }          /* a lift would collide with the next row at this density */
+
+  /* --- 2 · quantum numbers + real-atom summary: a column; if everything is opened at once, the summary
+         and the "simplifies" list scroll inside the card (the tooltips on the rows above are never clipped) --- */
+  #panel-info { display: flex; flex-direction: column; }
+  #panel-info > * { flex: none; }
+  #panel-info > #config-panel { flex: 0 1 auto; }
+  .selection-title { margin: 0 0 var(--sp-2); font-size: 1.25rem; min-height: 0; }
+  #qn-panel { margin: 0 0 var(--sp-2); padding: 0 var(--sp-3); }
+  .qn-row { grid-template-columns: 6.75rem minmax(0, 1fr); }
+  #qn-panel dt, #qn-panel dd { padding: 3px 0; }
+  .qn-sym { font-size: 1.125rem; }
+  #qn-panel dd { font-size: 1.0625rem; }
+  #qn-n[data-shell] { margin: 3px 0; padding: 1px 12px; }
+  #qn-rules { margin: 0 0 var(--sp-2); }
+  #config-panel { min-height: 9rem; overflow-y: auto; scrollbar-width: thin; padding-top: var(--sp-2); }   /* last resort for a very long note */
+  #config-panel[hidden] { display: none; }
+  #simplifications { margin-top: var(--sp-2); padding-top: var(--sp-1); }
+  #simplifications[open] { flex: 0 1 auto; min-height: 0; max-height: 45%; overflow-y: auto; scrollbar-width: thin; }
+  details.more > summary { min-height: 28px; }
+
+  /* --- 3 · viewer: the canvas takes whatever height is left --- */
+  #panel-viewer { position: static; align-self: stretch; max-height: none; overflow: hidden; gap: 6px; box-shadow: var(--shadow-2); }
+  #panel-viewer .card-head { margin: 0; }
+  #panel-viewer { container-type: inline-size; }
+  /* the 3-D scene is framed by height, so a very tall, narrow canvas would crop its sides: cap the height at 1.3 x the width */
+  .canvas-wrap { flex: 1 1 0; min-height: 120px; max-height: 130cqw; }
+  #orbital-canvas { position: absolute; inset: 0; width: auto; height: auto !important; }
+  #axis-key { top: var(--sp-1); left: var(--sp-1); padding: 2px 8px; font-size: .75rem; }
+  .viewer-hint { font-size: .8125rem; line-height: 1.3; }
+  #viewer-legend { flex: none; min-height: 0; max-height: 92px; overflow-y: auto; gap: 4px 6px; }
+  .legend-item { min-height: 28px; padding: 1px 10px; }
+  .legend-sign { margin: 2px 0 0; }
+  .scale-readout { flex: none; padding-top: 6px; gap: 0 var(--sp-4); }
+}
+/* a touch screen (the tablet app) keeps the compact rows, but gives the buttons a little more to press */
+@media (min-width: 1000px) and (min-height: 700px) and (min-aspect-ratio: 6/5) and (pointer: coarse) {
+  .card-head .btn { min-height: 38px; }
+  details.more > summary { min-height: 36px; }
+  .subshell-label, .shell-tag { min-height: 32px; }
+}
+/* between 700 and 719 high (just under the smallest supported 1280x720) squeeze the rows a little more */
+@media (min-width: 1000px) and (min-height: 700px) and (max-height: 719px) and (min-aspect-ratio: 6/5) {
+  #energy-diagram { --row-pad: 2px; --ml-h: 11px; }
+}
+/* a narrow AND short screen (1000-1179 wide, under 780 high): the title and "Select by" need two lines here,
+   so trim the rows' padding and fold the one-line hint into a screen-reader-only note to keep boxes >= 28px */
+@media (min-width: 1000px) and (max-width: 1179px) and (min-height: 700px) and (max-height: 779px) and (min-aspect-ratio: 6/5) {
+  #energy-diagram { --row-pad: 2px; --ml-h: 11px; }
+  .slice-hint {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+}
+/* the title and the "Select by" control share one line once the diagram card is wide enough */
+@media (min-width: 1180px) and (min-height: 700px) and (min-aspect-ratio: 6/5) {
+  #panel-diagram {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "head seg" "hint hint" "diagram diagram";
+  }
+  #panel-diagram > .card-head { margin-bottom: 0; }
+  #slice-mode { justify-self: end; }
+}
+
+/* reduced motion: no eased transitions or scrolling; animations are shortened to .01ms by design-system.css
+   (not removed, so animationend still fires for the screen change) */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
 }

@@ -14,112 +14,194 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
-    <span id="theme-toggle-icon" data-icon="moon"></span>
-  </button>
-
-  <header class="site-header">
+  <!-- Slim app bar: the same on every screen. Which controls show depends on the screen (app.js sets
+       body[data-screen="start|table|app"] and body[data-mode="explore|atom"], and uses [hidden] on
+       #mode-switch and #element-chip). -->
+  <header class="app-bar" id="app-bar">
     <nav class="top-links" aria-label="Chemculator navigation"><a class="home-link" href="https://azlanyaacob92.github.io/">← Chemculator home</a></nav>
-    <a class="brand-mark" href="https://azlanyaacob92.github.io/" aria-label="Chemculator home">
+    <a class="brand-mark app-bar__brand" id="app-home" href="./" title="Back to the start screen" aria-label="Chemulate Orbitals, back to the start screen">
       <img class="brand-mark__img--light" src="brand/mark.svg" alt="" width="43" height="48">
       <img class="brand-mark__img--dark" src="brand/mark-on-dark.svg" alt="" width="43" height="48">
+      <span class="app-bar__title">Chemulate Orbitals</span>
     </a>
-    <span class="eyebrow">Atomic Orbitals</span>
-    <h1 class="site-title">Chemulate Orbitals</h1>
+
+    <div class="app-bar__tools">
+      <fieldset id="mode-switch" class="mode-switch" hidden>
+        <legend class="sr-only">Mode</legend>
+        <div class="seg seg--strong">
+          <label><input type="radio" name="app-mode" value="explore" checked /> <span>Explore</span></label>
+          <label><input type="radio" name="app-mode" value="atom" /> <span>Real atom</span></label>
+        </div>
+      </fieldset>
+      <button id="element-chip" class="element-chip" type="button" hidden aria-label="Change element">
+        <span class="element-chip__text" id="element-chip-text"></span>
+        <span class="element-chip__change" aria-hidden="true">change</span>
+      </button>
+    </div>
+
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+      <span id="theme-toggle-icon" data-icon="moon"></span>
+    </button>
   </header>
 
-  <!-- Three cards, left to right: 1 Energy | 2 Quantum numbers | 3 Orbital viewer (sticky).
-       DOM order = reading order on narrow screens (one column). -->
-  <main class="viz-layout">
+  <!-- Exactly one .screen is visible at a time; the others carry [hidden]. app.js switches them with a
+       short fade + 10px lift (.is-leaving on the old one, .is-entering on the new one). -->
+  <main class="app-main" id="main">
 
-    <!-- ============ 1 · ENERGY DIAGRAM ============ -->
-    <section id="panel-diagram" class="card" aria-labelledby="diagram-heading">
-      <div class="card-head">
-        <span class="step" aria-hidden="true">1</span>
-        <h2 id="diagram-heading" class="card-title">Energy diagram</h2>
+    <!-- ============ SCREEN 1 · START ============ -->
+    <section id="screen-start" class="screen screen--start" aria-labelledby="start-heading" hidden>
+      <div class="start-inner">
+        <span class="eyebrow">Atomic orbitals</span>
+        <h1 id="start-heading" class="screen-title" tabindex="-1">Chemulate Orbitals</h1>
+        <p class="screen-lead">How do you want to start?</p>
+        <div class="mode-cards">
+          <button type="button" class="mode-card choice-card choice-card--lav" data-mode="explore">
+            <span class="choice-verb">Explore orbitals</span>
+            <span class="choice-desc">See every orbital and its quantum numbers. No electrons.</span>
+          </button>
+          <button type="button" class="mode-card choice-card choice-card--grn" data-mode="atom">
+            <span class="choice-verb">Real atoms</span>
+            <span class="choice-desc">Pick an element from H to Xe and see its electrons fill the orbitals.</span>
+          </button>
+        </div>
       </div>
-      <div class="slice-bar">
-        <fieldset id="slice-mode">
-          <legend>Select by</legend>
-          <div class="seg seg--strong">
-            <label><input type="radio" name="slice-mode" value="orbital" checked /> <span>Orbital</span></label>
-            <label><input type="radio" name="slice-mode" value="subshell" /> <span>Subshell</span></label>
-            <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
-          </div>
-        </fieldset>
-        <p class="slice-hint" id="slice-hint"></p>
-      </div>
-      <div id="energy-diagram"></div>
     </section>
 
-    <!-- ============ 2 · QUANTUM NUMBERS ============ -->
-    <aside id="panel-info" class="card" aria-labelledby="info-heading">
-      <div class="card-head">
-        <span class="step" aria-hidden="true">2</span>
-        <h2 id="info-heading" class="card-title">Quantum numbers</h2>
-      </div>
-      <h3 id="selection-title" class="selection-title"></h3>
-      <dl id="qn-panel">
-        <div class="qn-row"><dt><span class="qn-sym">n</span><span class="qn-name">shell</span></dt><dd id="qn-n"></dd></div>
-        <div class="qn-row"><dt><span class="qn-sym">l</span><span class="qn-name">subshell</span></dt><dd id="qn-l"></dd></div>
-        <div class="qn-row"><dt><span class="qn-sym">m<sub>l</sub></span><span class="qn-name">orbital</span></dt><dd id="qn-ml"></dd></div>
-        <div class="qn-row"><dt><span class="qn-sym">m<sub>s</sub></span><span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
-      </dl>
-      <ul id="qn-rules"></ul>
-
-      <div id="config-panel">
-        <div class="element-row">
-          <label for="element-select">Show electrons for</label>
-          <select id="element-select" class="select"></select>
+    <!-- ============ SCREEN 2 · PERIODIC TABLE SELECTOR ============ -->
+    <section id="screen-table" class="screen screen--table" aria-labelledby="table-heading" hidden>
+      <div class="table-card card">
+        <div class="card-head table-card__head">
+          <h1 id="table-heading" class="card-title screen-title" tabindex="-1">Periodic table selector</h1>
         </div>
-        <p id="electron-count" class="electron-count"></p>
-        <p id="config-notation" class="config-notation"></p>
-        <div id="config-status" role="status" aria-live="polite"></div>
+        <div id="table-mount"></div>
+        <div class="table-card__foot">
+          <button id="table-back" class="btn btn--ghost" type="button">← Back</button>
+          <p id="table-hint" class="table-hint" aria-live="off">Hover or focus an element to read its configuration. Press Enter or click to choose it.</p>
+        </div>
       </div>
+    </section>
 
-      <details id="simplifications" class="more">
-        <summary>What this model simplifies</summary>
-        <ul>
-          <li>Only the <strong>angular shape</strong> is drawn. Radial nodes (for example inside 2s, 3s and 3p) are not shown.</li>
-          <li>These are the <strong>real</strong> orbitals (p<sub>x</sub>, p<sub>y</sub>, p<sub>z</sub>, d<sub>xy</sub> …), which are combinations of the complex orbitals labelled by m<sub>l</sub>. Each real orbital is tied to an m<sub>l</sub> value for bookkeeping only.</li>
-          <li>Orbital size grows with n as n<sup>0.75</sup>. Real average radii grow roughly as n<sup>2</sup>, so this keeps the order of sizes but compresses the ratios.</li>
-          <li>The vertical energy axis is <strong>schematic</strong>: the order is right, the gaps are not to scale.</li>
-          <li>Scope: 1s to 5p (up to xenon, 54 electrons). No f orbitals.</li>
-        </ul>
-      </details>
-    </aside>
+    <!-- ============ SCREEN 3 · THE APP VIEW ============
+         Three cards, left to right: 1 Energy | 2 Quantum numbers | 3 Orbital viewer (sticky).
+         DOM order = reading order on narrow screens (one column). -->
+    <section id="screen-app" class="screen screen--app viz-layout" aria-labelledby="app-heading" hidden>
+      <h1 id="app-heading" class="sr-only" tabindex="-1">Orbital explorer</h1>
 
-    <!-- ============ 3 · 3-D VIEWER (sticky) ============ -->
-    <section id="panel-viewer" class="card" aria-labelledby="viewer-heading">
-      <div class="card-head">
-        <span class="step" aria-hidden="true">3</span>
-        <h2 id="viewer-heading" class="card-title">Orbital viewer</h2>
-        <button id="btn-reset-view" class="btn btn--ghost" type="button">Reset view</button>
-      </div>
-      <div class="canvas-wrap">
-        <div id="orbital-canvas" role="img" aria-label="Interactive 3-D view of the selected orbitals. Drag to rotate, scroll or pinch to zoom."></div>
-        <div id="axis-key"></div>
-      </div>
-      <p class="viewer-hint">Drag to rotate · scroll or pinch to zoom</p>
-      <div id="viewer-legend" aria-live="polite"></div>
-      <div id="scale-readout" class="scale-readout" role="status" aria-live="off">
-        <p class="scale-row"><span class="scale-name">Zoom</span> <span id="zoom-readout" class="scale-value">×0.70</span> <span id="zoom-note" class="scale-note">default</span></p>
-        <p class="scale-row"><span class="scale-name">Size vs 1s</span> <span id="size-readout" class="scale-value"></span></p>
-        <details class="more scale-more">
-          <summary>About the scale</summary>
-          <p>Axis ticks: 1 unit = the size of the 1s orbital. Sizes follow n<sup>0.75</sup> so 5p still fits; the true size grows as n<sup>2</sup>.</p>
+      <!-- ============ 1 · ENERGY DIAGRAM ============ -->
+      <section id="panel-diagram" class="card" aria-labelledby="diagram-heading">
+        <div class="card-head">
+          <span class="step" aria-hidden="true">1</span>
+          <h2 id="diagram-heading" class="card-title">Energy diagram</h2>
+        </div>
+        <div class="slice-bar">
+          <fieldset id="slice-mode">
+            <legend>Select by</legend>
+            <div class="seg seg--strong">
+              <label><input type="radio" name="slice-mode" value="orbital" checked /> <span>Orbital</span></label>
+              <label><input type="radio" name="slice-mode" value="subshell" /> <span>Subshell</span></label>
+              <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
+            </div>
+          </fieldset>
+          <p class="slice-hint" id="slice-hint"></p>
+        </div>
+        <div id="energy-diagram"></div>
+      </section>
+
+      <!-- ============ 2 · QUANTUM NUMBERS ============ -->
+      <aside id="panel-info" class="card" aria-labelledby="info-heading">
+        <div class="card-head">
+          <span class="step" aria-hidden="true">2</span>
+          <h2 id="info-heading" class="card-title">Quantum numbers</h2>
+        </div>
+        <h3 id="selection-title" class="selection-title"></h3>
+        <dl id="qn-panel">
+          <div class="qn-row"><dt><span class="qn-sym">n</span><span class="qn-name">shell</span></dt><dd id="qn-n"></dd></div>
+          <div class="qn-row"><dt><span class="qn-sym">l</span><span class="qn-name">subshell</span></dt><dd id="qn-l"></dd></div>
+          <div class="qn-row"><dt><span class="qn-sym">m<sub>l</sub></span><span class="qn-name">orbital</span></dt><dd id="qn-ml"></dd></div>
+          <div class="qn-row"><dt><span class="qn-sym">m<sub>s</sub></span><span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
+        </dl>
+        <ul id="qn-rules"></ul>
+
+        <!-- Real-atom summary. #config-panel is [hidden] in Explore mode. app.js fills everything below. -->
+        <div id="config-panel" hidden>
+          <div id="element-summary" class="element-summary">
+            <h3 id="element-title" class="element-title">
+              <span id="element-name" class="element-name"></span>
+              <span id="element-symbol" class="element-symbol"></span>
+            </h3>
+            <p id="electron-count" class="electron-count"></p>
+            <div id="config-notation" class="config-notation"></div>
+            <div id="config-status"></div>
+            <details id="element-more" class="more element-more" hidden>
+              <summary id="element-more-summary">More about this element</summary>
+              <p id="anomaly-reason" class="anomaly-reason"></p>
+              <p id="valence-note" class="valence-note"></p>
+            </details>
+          </div>
+        </div>
+
+        <details id="simplifications" class="more">
+          <summary>What this model simplifies</summary>
+          <ul>
+            <li>Only the <strong>angular shape</strong> is drawn. Radial nodes (for example inside 2s, 3s and 3p) are not shown.</li>
+            <li>These are the <strong>real</strong> orbitals (p<sub>x</sub>, p<sub>y</sub>, p<sub>z</sub>, d<sub>xy</sub> …), which are combinations of the complex orbitals labelled by m<sub>l</sub>. Each real orbital is tied to an m<sub>l</sub> value for bookkeeping only.</li>
+            <li>Orbital size grows with n as n<sup>0.75</sup>. Real average radii grow roughly as n<sup>2</sup>, so this keeps the order of sizes but compresses the ratios.</li>
+            <li>The vertical energy axis is <strong>schematic</strong>: the order is right, the gaps are not to scale.</li>
+            <li>Scope: 1s to 5p (up to xenon, 54 electrons). No f orbitals.</li>
+          </ul>
         </details>
-      </div>
+      </aside>
+
+      <!-- ============ 3 · 3-D VIEWER (sticky) ============ -->
+      <section id="panel-viewer" class="card" aria-labelledby="viewer-heading">
+        <div class="card-head">
+          <span class="step" aria-hidden="true">3</span>
+          <h2 id="viewer-heading" class="card-title">Orbital viewer</h2>
+          <button id="btn-reset-view" class="btn btn--ghost" type="button">Reset view</button>
+        </div>
+        <div class="canvas-wrap">
+          <div id="orbital-canvas" role="img" aria-label="Interactive 3-D view of the selected orbitals. Drag to rotate, scroll or pinch to zoom."></div>
+          <div id="axis-key"></div>
+        </div>
+        <p class="viewer-hint">Drag to rotate · scroll or pinch to zoom</p>
+        <div id="viewer-legend" aria-live="polite"></div>
+        <div id="scale-readout" class="scale-readout" role="status" aria-live="off">
+          <p class="scale-row"><span class="scale-name">Zoom</span> <span id="zoom-readout" class="scale-value">×0.70</span> <span id="zoom-note" class="scale-note">default</span></p>
+          <p class="scale-row"><span class="scale-name">Size vs 1s</span> <span id="size-readout" class="scale-value"></span></p>
+          <details class="more scale-more">
+            <summary>About the scale</summary>
+            <p>Axis ticks: 1 unit = the size of the 1s orbital. Sizes follow n<sup>0.75</sup> so 5p still fits; the true size grows as n<sup>2</sup>.</p>
+          </details>
+        </div>
+      </section>
     </section>
   </main>
+
+  <!-- Reveal the right screen before the first paint, so there is never a flash of the wrong one.
+       app.js takes over from here (and applies the same rules to the URL hash). -->
+  <script>
+    (function () {
+      var h = location.hash, id = 'start', m = /^#atom=(\d+)$/.exec(h);
+      if (h === '#explore' || (m && +m[1] >= 1 && +m[1] <= 54)) id = 'app';
+      else if (h === '#atom' || m) id = 'table';
+      var s = document.getElementById('screen-' + id);
+      if (s) s.hidden = false;
+      document.body.setAttribute('data-screen', id);
+      document.body.setAttribute('data-mode', id === 'app' && h !== '#explore' ? 'atom' : 'explore');
+    })();
+  </script>
 
   <footer class="site-footer">
     <p>Quantum numbers, energy order and orbital shapes on one linked screen</p>
   </footer>
 
+  <!-- polite announcements of screen / mode / element changes (screen readers only) -->
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
   <script src="vendor/three.min.js"></script>
   <script src="chemistry.js"></script>
   <script src="shapes.js"></script>
+  <script src="periodic-table.js"></script>
   <script src="icons.js"></script>
   <script src="motion.js"></script>
   <script src="app.js"></script>
