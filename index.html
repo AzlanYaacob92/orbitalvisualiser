@@ -114,12 +114,9 @@
           <h2 id="info-heading" class="card-title">Quantum numbers</h2>
         </div>
         <h3 id="selection-title" class="selection-title"></h3>
-        <dl id="qn-panel">
-          <div class="qn-row"><dt><span class="qn-sym">n</span><span class="qn-name">shell</span></dt><dd id="qn-n"></dd></div>
-          <div class="qn-row"><dt><span class="qn-sym">l</span><span class="qn-name">subshell</span></dt><dd id="qn-l"></dd></div>
-          <div class="qn-row"><dt><span class="qn-sym">m<sub>l</sub></span><span class="qn-name">orbital</span></dt><dd id="qn-ml"></dd></div>
-          <div class="qn-row"><dt><span class="qn-sym">m<sub>s</sub></span><span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
-        </dl>
+        <!-- an invisible table: [symbol] [quantum number] [label] [tooltip]. app.js builds one row per value. -->
+        <div id="qn-panel" role="table" aria-label="Quantum numbers"></div>
+        <p id="qn-hint" class="qn-hint" hidden>Click an electron (↑ or ↓) in the diagram to see its four quantum numbers.</p>
         <ul id="qn-rules"></ul>
 
         <!-- Real-atom summary. #config-panel is [hidden] in Explore mode. app.js fills everything below. -->

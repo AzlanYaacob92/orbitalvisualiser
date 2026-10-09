@@ -103,7 +103,7 @@ main.viz-layout
     button#btn-reset-view
   aside#panel-info.card
     #selection-title
-    dl#qn-panel   (#qn-n #qn-l #qn-ml #qn-ms)
+    div#qn-panel  (invisible table, rows built by app.js: symbol / value / label / tooltip)
     ul#qn-rules                         // WHY-those-values explanations
     #config-panel
       #electron-count                   // "12 / 54"
