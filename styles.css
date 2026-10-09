@@ -292,7 +292,7 @@ sup { top: -.42em; }
    --sh / --sh-soft / --sh-ink. Components below read them with a neutral fallback,
    so an element without the attribute keeps the plain lavender look.
    Hooked up: .subshell-row[data-n] (+ the orbital boxes inside it), .shell-tag[data-shell],
-   #selection-title[data-shell], #qn-n[data-shell], .legend-item[data-n]. */
+   #selection-title[data-shell], .qn-val[data-shell], .legend-item[data-n]. */
 [data-n="1"], [data-shell="1"] { --sh: var(--shell-1); --sh-soft: var(--shell-1-soft); --sh-ink: var(--shell-1-ink); }
 [data-n="2"], [data-shell="2"] { --sh: var(--shell-2); --sh-soft: var(--shell-2-soft); --sh-ink: var(--shell-2-ink); }
 [data-n="3"], [data-shell="3"] { --sh: var(--shell-3); --sh-soft: var(--shell-3-soft); --sh-ink: var(--shell-3-ink); }
@@ -384,6 +384,7 @@ sup { top: -.42em; }
 .orbital-box .electron::before { font-size: var(--arrow-fs); font-weight: var(--w-semi); font-family: var(--font-body); }
 .orbital-box .electron.is-new { animation: electron-in var(--dur) var(--ease) both; }   /* an electron just added fades in (opacity only: it never jumps) */
 .orbital-box .electron.is-leaving { opacity: 0; }
+.orbital-box .electron.is-picked { background: var(--primary-soft); box-shadow: inset 0 0 0 2px var(--primary); border-radius: var(--r-sm); }
 .orbital-box .electron[data-spin="up"]   { left: 0; }
 .orbital-box .electron[data-spin="down"] { right: 0; }
 .orbital-box .electron[data-spin="up"]::before   { content: "\2191"; }
@@ -516,20 +517,25 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
 }
 
 #qn-panel { margin: 0 0 var(--sp-4); background: var(--card-2); border-radius: var(--r-md); padding: 4px var(--sp-4); }
+/* an invisible table: symbol | quantum number | label | tooltip. One row per value; the symbol and the tooltip sit on a group's first row. */
 .qn-row {
-  display: grid; grid-template-columns: 8.25rem minmax(0, 1fr); align-items: center;
-  border-top: 1px solid var(--line-strong);
+  display: grid; grid-template-columns: 5.5rem 3rem minmax(0, 1fr) auto; align-items: center; column-gap: var(--sp-2);
 }
-.qn-row:first-child { border-top: 0; }
-#qn-panel dt, #qn-panel dd { margin: 0; padding: 8px 0; }
-#qn-panel dt { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--sp-2); padding-right: var(--sp-2); color: var(--ink); }
+.qn-row.qn-first { border-top: 1px solid var(--line-strong); }
+.qn-row.qn-first:first-child { border-top: 0; }
+.qn-key, .qn-val, .qn-label, .qn-end { padding: 5px 0; }
+.qn-key { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--sp-2); color: var(--ink); }
 .qn-sym { font-family: var(--font-display); font-style: italic; font-weight: var(--w-display); font-size: 1.25rem; line-height: 1.2; min-width: 1.4em; }
 .qn-name { font: var(--t-small); font-style: normal; color: var(--muted); }
-#qn-panel dd { font: var(--t-quantity); font-size: 1.125rem; font-variant-numeric: tabular-nums; font-weight: var(--w-semi); color: var(--ink); overflow-wrap: anywhere; }
-#qn-n[data-shell] {
-  display: inline-block; justify-self: start; padding: 2px 14px; margin: 6px 0; border-radius: var(--r-pill);
+.qn-val { font: var(--t-quantity); font-size: 1.125rem; font-variant-numeric: tabular-nums; font-weight: var(--w-semi); color: var(--ink); }
+.qn-label { font: var(--t-quantity); font-size: 1rem; color: var(--ink); overflow-wrap: anywhere; }
+.qn-end { justify-self: end; }
+.qn-val[data-shell] {
+  justify-self: start; padding: 2px 14px; margin: 4px 0; border-radius: var(--r-pill);
   background: var(--sh-soft); color: var(--sh-ink); box-shadow: inset 0 0 0 2px var(--sh);
 }
+.qn-hint { margin: 0 0 var(--sp-3); font: var(--t-small); color: var(--muted); }
+.qn-hint[hidden] { display: none; }
 .ms-note { display: block; font: var(--t-small); color: var(--muted); }
 
 /* the old bullet list is gone: its text now lives in the tooltips */
@@ -778,7 +784,7 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
 @keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* tips sit inline next to their label */
-.qn-row .tip-wrap, .energy-axis .tip-wrap { margin-left: 2px; }
+.qn-end .tip-wrap, .energy-axis .tip-wrap { margin-left: 2px; }
 
 /* ---------- compact boxes on narrow phones so rows never overflow at 360px ---------- */
 @media (max-width: 480px) {
@@ -901,11 +907,12 @@ button.legend-item:focus-visible { outline: 2px solid var(--primary); outline-of
   #panel-info > #config-panel { flex: 0 1 auto; }
   .selection-title { margin: 0 0 var(--sp-2); font-size: 1.25rem; min-height: 0; }
   #qn-panel { margin: 0 0 var(--sp-2); padding: 0 var(--sp-3); }
-  .qn-row { grid-template-columns: 6.75rem minmax(0, 1fr); }
-  #qn-panel dt, #qn-panel dd { padding: 3px 0; }
+  .qn-row { grid-template-columns: 5.25rem 2.75rem minmax(0, 1fr) auto; column-gap: var(--sp-1); }
+  .qn-key, .qn-val, .qn-label, .qn-end { padding: 2px 0; }
   .qn-sym { font-size: 1.125rem; }
-  #qn-panel dd { font-size: 1.0625rem; }
-  #qn-n[data-shell] { margin: 3px 0; padding: 1px 12px; }
+  .qn-val, .qn-label { font-size: 1.0625rem; }
+  .qn-val[data-shell] { margin: 2px 0; padding: 1px 10px; }
+  .qn-hint { margin: 0 0 var(--sp-2); }
   #qn-rules { margin: 0 0 var(--sp-2); }
   #config-panel { min-height: 9rem; overflow-y: auto; scrollbar-width: thin; padding-top: var(--sp-2); }   /* last resort for a very long note */
   #config-panel[hidden] { display: none; }

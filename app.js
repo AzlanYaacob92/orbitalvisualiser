@@ -14,7 +14,7 @@
      class by default = below the button, centred; JS adds .is-above (flip up), .is-left (right edges align, grows
      leftwards) or .is-right (left edges align, grows rightwards) to keep it on screen, and .tip-wrap.is-open
      while shown. As a last resort it also sets an inline `translate` on the pop.
-   - data-shell="N" on #selection-title and #qn-n, data-n="N" on .legend-item (shell colour hooks).
+   - data-shell="N" on #selection-title and the n value in #qn-panel, data-n="N" on .legend-item (shell colour hooks).
    - #orbital-canvas needs a height (min ~320px); app.js sets 360px inline only if it is < 100px.
    - Screens and modes: body[data-screen="start|table|app"] and body[data-mode="explore|atom"]; exactly one
      section.screen (#screen-start | #screen-table | #screen-app) is visible, the others carry [hidden]. During a
@@ -245,6 +245,7 @@
     loadedZ: null,            // element whose electrons are drawn (null = none, always so in Explore mode)
     lastZ: null,              // the last element chosen: Explore -> Real atom brings it back without the table
     started: false,           // true once the app view has been shown (the table's Back needs to know)
+    electron: null,           // { orbital, spin }: the electron picked in the diagram (Real atom mode only)
     hidden: new Set(),        // orbitals switched off via the legend; cleared whenever the selection changes
     hiddenKey: ''
   };
@@ -371,6 +372,7 @@
     const sel = new Set(selectedOrbitalIds());
     const mode = state.selection.level;
     const anchorO = Chem.getOrbital(state.anchor);
+    const pk = pickedElectron();
 
     function isContext(o) {
       if (sel.has(o.id)) return false;
@@ -398,6 +400,7 @@
         if (!occ[spin]) return;
         const e = el('span', 'electron', spin === 'up' ? '↑' : '↓');
         e.dataset.spin = spin;
+        e.classList.toggle('is-picked', !!pk && pk.orbital === oid && pk.spin === spin);
         e.setAttribute('aria-hidden', 'true');
         b.insertBefore(e, tagEl);
       });
@@ -430,22 +433,33 @@
   const QN_TIP_LABEL = { n: 'n', l: 'l', ml: 'mₗ', ms: 'mₛ' };
   const qnTips = {};
 
-  // the <dt> that names a quantum number, found from its value cell whatever the markup around it
-  function qnHost(key) {
-    const dd = $('qn-' + key);
-    if (!dd) return null;
-    const prev = dd.previousElementSibling;
-    if (prev && prev.tagName === 'DT') return prev;
-    return (dd.parentElement && dd.parentElement.querySelector('dt')) || dd.parentElement;
+  const QN_SYM = { n: 'n', l: 'l', ml: 'm<sub>l</sub>', ms: 'm<sub>s</sub>' };
+  const QN_NAME = { n: 'shell', l: 'subshell', ml: 'orbital', ms: 'spin' };
+
+  /* #qn-panel is an invisible table with one row per value: [symbol + name] [value] [label] [tooltip].
+     rows = [{ val, label (static markup), shell }]. The symbol and tooltip sit on the first row of each group. */
+  function qnGroup(panel, key, rows) {
+    rows.forEach(function (r, i) {
+      const row = el('div', 'qn-row' + (i === 0 ? ' qn-first' : ''));
+      row.setAttribute('role', 'row');
+      const sym = elHTML('span', 'qn-key', i === 0 ? '<span class="qn-sym">' + QN_SYM[key] + '</span><span class="qn-name">' + QN_NAME[key] + '</span>' : '');
+      sym.setAttribute('role', 'rowheader');
+      const val = el('span', 'qn-val', r.val);
+      val.setAttribute('role', 'cell');
+      if (key === 'n' && r.shell != null) val.setAttribute('data-shell', String(r.shell));
+      const lab = elHTML('span', 'qn-label', r.label || '');
+      lab.setAttribute('role', 'cell');
+      const end = el('span', 'qn-end');
+      end.setAttribute('role', 'cell');
+      if (i === 0 && qnTips[key]) end.appendChild(qnTips[key]);
+      [sym, val, lab, end].forEach(function (c) { row.appendChild(c); });
+      panel.appendChild(row);
+    });
   }
 
   function mountQnTips() {
-    realSubscripts($('qn-panel'));
     QN_KEYS.forEach(function (k) {
-      const host = qnHost(k);
-      if (!host || qnTips[k]) return;
-      qnTips[k] = tip(QN_TIP_LABEL[k], '', k);          // ids tip-n, tip-l, tip-ml, tip-ms
-      host.appendChild(qnTips[k]);
+      if (!qnTips[k]) qnTips[k] = tip(QN_TIP_LABEL[k], '', k);          // ids tip-n, tip-l, tip-ml, tip-ms
     });
   }
 
@@ -454,13 +468,24 @@
     if (n == null) node.removeAttribute('data-shell'); else node.setAttribute('data-shell', String(n));
   }
 
+  /* the picked electron, or null once it is gone (another element, Explore mode) */
+  function pickedElectron() {
+    const p = state.electron;
+    if (!p || state.mode !== 'atom') return null;
+    const occ = state.occupancy[p.orbital];
+    return occ && occ[p.spin] ? p : null;
+  }
+
   function updateInfo() {
     const sel = state.selection;
     const d = (function () { try { return Chem.describeSelection(sel.level, sel.id) || {}; } catch (e) { return {}; } })();
     const n1 = d.n && d.n.length === 1 ? d.n[0] : null;     // the shell colour hook: set when the selection has a single n
 
     const title = $('selection-title');
-    if (sel.level === 'orbital') {
+    const pk = pickedElectron();
+    if (pk) {
+      title.innerHTML = orbitalHTML(pk.orbital) + ' electron ' + (pk.spin === 'up' ? '↑' : '↓');
+    } else if (sel.level === 'orbital') {
       title.innerHTML = orbitalHTML(sel.id) + ' orbital';
     } else if (sel.level === 'subshell') {
       title.innerHTML = Chem.subHTML(String(sel.id)) + ' subshell' +
@@ -468,26 +493,41 @@
     } else {
       title.textContent = 'Shell n = ' + sel.id;
     }
-    setShellAttr(title, n1);
+    setShellAttr(title, pk ? Chem.getOrbital(pk.orbital).n : n1);
 
-    const nEl = $('qn-n');
-    nEl.textContent = fmtList(d.n || []);
-    setShellAttr(nEl, n1);
-    $('qn-l').textContent = fmtList(d.l || [], lText);
-    const ml = $('qn-ml');
-    if (sel.level === 'subshell') {
-      // each mₗ with the box it tags, e.g. "−1 (p_y), 0 (p_z), +1 (p_x)"
-      ml.innerHTML = Chem.selectionToOrbitals('subshell', sel.id).map(Chem.getOrbital)
-        .sort(function (a, b) { return a.ml - b.ml; })
-        .map(function (o) { return fmtMl(o.ml) + ' (' + orbitalHTML(o.id, true) + ')'; }).join(', ');
+    const panel = $('qn-panel');
+    QN_KEYS.forEach(function (k) { if (qnTips[k] && qnTips[k].parentNode) qnTips[k].parentNode.removeChild(qnTips[k]); });
+    panel.textContent = '';
+    const picked = pickedElectron();
+    $('qn-hint').hidden = state.mode !== 'atom';
+
+    let nRows, lRows, mlRows, msRows, explain = d.explain || {};
+    if (picked) {
+      // one electron: exactly one value for each of the four quantum numbers
+      const o = Chem.getOrbital(picked.orbital);
+      nRows = [{ val: String(o.n), shell: o.n }];
+      lRows = [{ val: String(o.l), label: LETTERS[o.l] }];
+      mlRows = [{ val: fmtMl(o.ml), label: orbitalHTML(o.id, true) }];
+      msRows = [{ val: picked.spin === 'up' ? '+½' : '−½', label: spinName(picked.spin) }];
+      try { explain = Chem.describeSelection('orbital', o.id).explain || explain; } catch (e) { /* keep the selection's text */ }
     } else {
-      ml.textContent = fmtList(d.ml || [], fmtMl);
+      const orbs = (d.orbitals || []).map(Chem.getOrbital);
+      nRows = (d.n || []).map(function (n) { return { val: String(n), shell: n }; });
+      lRows = (d.l || []).map(function (l) { return { val: String(l), label: LETTERS[l] }; });
+      mlRows = (d.ml || []).map(function (m) {      // each mₗ with the boxes that carry it
+        return { val: fmtMl(m), label: orbs.filter(function (o) { return o.ml === m; })
+          .map(function (o) { return orbitalHTML(o.id, true); }).join(', ') };
+      });
+      msRows = [{ val: '+½', label: 'spin up' }, { val: '−½', label: 'spin down' }];
     }
-    $('qn-ms').textContent = '+½ or −½';
+    qnGroup(panel, 'n', nRows);
+    qnGroup(panel, 'l', lRows);
+    qnGroup(panel, 'ml', mlRows);
+    qnGroup(panel, 'ms', msRows);
     const rules = $('qn-rules');           // no longer a visible list: the sentences are in the tooltips
     if (rules) rules.textContent = '';
 
-    QN_KEYS.forEach(function (k) { setTipContent(qnTips[k], tipBody((d.explain || {})[k])); });
+    QN_KEYS.forEach(function (k) { setTipContent(qnTips[k], tipBody(explain[k])); });
   }
 
   /* ---------------- configuration panel ---------------- */
@@ -1090,10 +1130,20 @@
 
   /* ---------------- events ---------------- */
   /* Clicking in the diagram only ever selects. Electrons are never added or removed here. */
+  // the electron arrow under the pointer, if any (arrows ignore pointer events, so test their rectangles)
+  function electronAt(box, x, y) {
+    return Array.from(box.querySelectorAll('.electron')).find(function (el2) {
+      const r = el2.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }) || null;
+  }
+
   diagramEl.addEventListener('click', function (e) {
     const box = e.target.closest('.orbital-box');
     const label = e.target.closest('.subshell-label');
     const tag = e.target.closest('.shell-tag');
+    const prev = pickedElectron();
+    state.electron = null;
     if (label) {
       selectSubshell(label.closest('.subshell-row').dataset.subshell);
       renderAll(); return;
@@ -1103,13 +1153,19 @@
       renderAll(); return;
     }
     if (!box) return;
+    const picked = state.mode === 'atom' ? electronAt(box, e.clientX, e.clientY) : null;
     selectBox(box.dataset.orbital);
+    if (picked) {
+      const same = prev && prev.orbital === box.dataset.orbital && prev.spin === picked.dataset.spin;
+      state.electron = same ? null : { orbital: box.dataset.orbital, spin: picked.dataset.spin };
+    }
     renderAll();
   });
 
   document.querySelectorAll('input[name="slice-mode"]').forEach(function (r) {
     r.addEventListener('change', function () {
       if (!r.checked) return;
+      state.electron = null;
       applyMode(r.value);
       renderAll();
     });
@@ -1201,6 +1257,7 @@
   /* ---- the element: the one place that puts electrons into (or takes them out of) the boxes ---- */
   function setElement(Z) {
     electronToken++;
+    state.electron = null;
     const occ = Chem.emptyOccupancy();
     if (Z) {
       const cfg = Chem.configOf(Z);
@@ -1211,6 +1268,7 @@
     const visible = shown === 'app' && curScreen === 'app';
     state.loadedZ = Z || null;
     state.occupancy = occ;
+    updateInfo();
     if (Z) {
       renderElectrons();
       if (visible) fadeInElectrons(0); else pendingFade = true;     // out of sight: fade them in once the view is back
