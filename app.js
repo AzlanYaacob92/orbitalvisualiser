@@ -640,6 +640,7 @@
         v.items.set(p.id, it);
         v.group.add(it.mesh);
       }
+      it.prevMode = it.mode;
       it.mode = p.mode; it.to = MODE_OPACITY[p.mode]; it.leaving = false;
       /* translucent surfaces draw after solid ones; larger n first so nested smaller orbitals stay on top */
       it.mesh.renderOrder = p.mode === 'solid' ? 0 : 1 + (10 - o.n);
@@ -657,6 +658,23 @@
     playFade();
   }
 
+  /* A solid orbital fading in or out is drawn blended, and a blended surface that is seen from
+     both sides shows its far side through its near side in whatever order the triangles happen to
+     be drawn, so lobes look bent and protruding until the fade ends and the surface turns opaque.
+     A depth-only twin drawn first (no colour) leaves just the nearest layer visible, so the shape
+     is right from the first frame and nothing changes when the fade finishes. The translucent
+     "clear" and "ghost" orbitals deliberately skip this: they are meant to be seen through. */
+  function setDepthPrepass(it, on) {
+    const v = viewer;
+    if (on && !it.depth) {
+      it.depth = new THREE.Mesh(it.mesh.geometry, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide }));
+      v.group.add(it.depth);
+    } else if (!on && it.depth) {
+      v.group.remove(it.depth); it.depth.material.dispose(); it.depth = null;   /* geometry is shared with it.mesh */
+    }
+    if (it.depth) it.depth.scale.copy(it.mesh.scale);
+  }
+
   function playFade() {
     const v = viewer;
     if (v.fade) { v.fade.cancel(); v.fade = null; }
@@ -666,7 +684,10 @@
       it.from = m.opacity; it.fromSize = it.mesh.scale.x;
       if (it.fromSize !== it.size) changing = true;
       /* a surface has to blend while its opacity is changing */
-      if (it.from !== it.to) { changing = true; m.transparent = true; m.depthWrite = false; m.needsUpdate = true; }
+      if (it.from !== it.to) {
+        changing = true; m.transparent = true; m.depthWrite = false; m.needsUpdate = true;
+        setDepthPrepass(it, it.mode === 'solid' || it.prevMode === 'solid');
+      }
     });
     /* nothing on stage differs (an electron was toggled, say): one repaint is enough */
     if (!changing) { v.dirty = false; v.requestRender(); return; }
@@ -676,11 +697,13 @@
         v.items.forEach(function (it) {
           it.mesh.material.opacity = it.from + (it.to - it.from) * p;
           it.mesh.scale.setScalar(it.fromSize + (it.size - it.fromSize) * p);
+          if (it.depth) it.depth.scale.copy(it.mesh.scale);
         });
         v.requestRender();
       },
       done: function () {
         v.items.forEach(function (it, id) {
+          setDepthPrepass(it, false);
           if (it.leaving) { v.group.remove(it.mesh); disposeObject(it.mesh); v.items.delete(id); return; }
           const m = it.mesh.material, solid = it.mode === 'solid';
           m.opacity = it.to; m.transparent = !solid; m.depthWrite = solid; m.needsUpdate = true;
