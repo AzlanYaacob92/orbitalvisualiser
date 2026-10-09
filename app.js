@@ -6,9 +6,15 @@
        --orbital-pos  colour of + lobes     --orbital-neg  colour of - lobes
        --axis-color   (optional) axis lines/labels; falls back to the text colour
    - span.electron[data-spin="up"] is the LEFT half of a box, [data-spin="down"] the RIGHT half.
-   - Extra classes added by app.js: #config-status .status-line.is-ok|is-warn|is-error,
-     .config-shorthand, .legend-chip.is-pos|is-neg (background uses the CSS vars inline),
-     .legend-sign, .legend-name, .legend-state, .viewer-fallback, #qn-ms .ms-note.
+   - Extra classes added by app.js: #config-status .status-line.is-ok|is-warn (is-warn = the ground-state
+     anomaly note), .config-shorthand, .legend-chip.is-pos|is-neg (background uses the CSS vars inline),
+     .legend-sign, .legend-name, .legend-state, .viewer-fallback, .title-focus (in #selection-title),
+     .orbital-name (small label with real <sub> inside every .orbital-box, aria-hidden).
+   - Tooltips (see tip()): .tip-wrap > button.info-tip + span.tip-pop[hidden] (text in <p> blocks). The pop has no
+     class by default = below the button, centred; JS adds .is-above (flip up), .is-left (right edges align, grows
+     leftwards) or .is-right (left edges align, grows rightwards) to keep it on screen, and .tip-wrap.is-open
+     while shown. As a last resort it also sets an inline `translate` on the pop.
+   - data-shell="N" on #selection-title and #qn-n, data-n="N" on .legend-item (shell colour hooks).
    - #orbital-canvas needs a height (min ~320px); app.js sets 360px inline only if it is < 100px.
 */
 (function () {
@@ -53,7 +59,6 @@
   /* ---------------- helpers ---------------- */
   const LETTERS = ['s', 'p', 'd', 'f'];
   const $ = (id) => document.getElementById(id);
-  const SUB = '₀₁₂₃₄₅₆₇₈₉';
   function el(tag, cls, text) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -67,20 +72,168 @@
   function spinName(s) { return s === 'up' ? 'spin up' : 'spin down'; }
   function cleanLabel(o) { return o.label || o.id; }
 
+  /* ---------------- labels: real subscripts ---------------- */
+  /* orbitalHTML(id) is safe, static markup built from chemistry.js data (never from user input):
+       2s, 2p<sub>x</sub>, 3d<sub>z²</sub>, 3d<sub>x²−y²</sub>, 3d<sub>xy</sub> …
+     Assign it with innerHTML on elements created here. short = true drops the n (p<sub>x</sub>).
+     orbitalText(id) is the plain twin ('3dx²−y²') for aria-labels and title attributes. */
+  function orbitalHTML(id, short) { return Chem.orbitalHTML(id, { short: !!short }); }
+  function orbitalText(id, short) { return Chem.orbitalPlain(id, { short: !!short }); }
+  function elHTML(tag, cls, markup) { const e = el(tag, cls); e.innerHTML = markup; return e; }
+
+  /* the page may still spell the quantum-number names with Unicode subscripts (mₗ, mₛ): swap in real <sub> */
+  function realSubscripts(rootEl) {
+    if (!rootEl) return;
+    const w = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+    const todo = [];
+    while (w.nextNode()) if (/m[ₗₛ]/.test(w.currentNode.nodeValue)) todo.push(w.currentNode);
+    todo.forEach(function (t) {
+      const frag = document.createDocumentFragment();
+      t.nodeValue.split(/(m[ₗₛ])/).forEach(function (part) {
+        if (/^m[ₗₛ]$/.test(part)) {
+          frag.appendChild(document.createTextNode('m'));
+          frag.appendChild(el('sub', null, part.charAt(1) === 'ₗ' ? 'l' : 's'));
+        } else if (part) frag.appendChild(document.createTextNode(part));
+      });
+      t.parentNode.replaceChild(frag, t);
+    });
+  }
+
+  /* ---------------- tooltips ---------------- */
+  /* tip(label, html [, idHint]) -> <span class="tip-wrap"> button.info-tip + span.tip-pop[role=tooltip][hidden] </span>
+     Hover (mouse), keyboard focus and click / tap open it; Esc, a click elsewhere or a second click close it;
+     only one is open at a time; it flips / slides to stay inside the viewport. `html` must be static markup
+     (Chem.subHTML output or literals): it is assigned with innerHTML. Nothing is visible until asked for. */
+  const tipUsed = {};
+  let tipOpen = null;               // the .tip-wrap that is currently shown
+  let tipRaf = 0;
+
+  function tipParts(wrap) { return { btn: wrap.querySelector('.info-tip'), pop: wrap.querySelector('.tip-pop') }; }
+
+  function tip(label, content, idHint) {
+    const slug = String(idHint || label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'tip';
+    let id = 'tip-' + slug, k = 1;
+    while (tipUsed[id] || document.getElementById(id)) id = 'tip-' + slug + '-' + (++k);
+    tipUsed[id] = true;
+
+    const wrap = el('span', 'tip-wrap');
+    const btn = el('button', 'info-tip', 'i');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'About ' + label);
+    btn.setAttribute('aria-expanded', 'false');
+    btn.setAttribute('aria-describedby', id);
+    const pop = el('span', 'tip-pop');
+    pop.id = id;
+    pop.setAttribute('role', 'tooltip');
+    pop.hidden = true;
+    pop.innerHTML = content || '';
+    wrap.appendChild(btn);
+    wrap.appendChild(pop);
+
+    let leaveTimer = 0;
+    wrap._pinned = false;   // opened by a click: stays until clicked again, Esc or an outside click
+    wrap.addEventListener('pointerenter', function (e) {
+      if (e.pointerType !== 'mouse') return;      // touch has no hover: a tap arrives as a click
+      clearTimeout(leaveTimer);
+      showTip(wrap);
+    });
+    wrap.addEventListener('pointerleave', function (e) {
+      if (e.pointerType !== 'mouse') return;
+      clearTimeout(leaveTimer);
+      leaveTimer = setTimeout(function () {
+        if (!wrap._pinned && !wrap.matches(':focus-within')) hideTip(wrap);
+      }, 140);
+    });
+    wrap.addEventListener('focusin', function () { showTip(wrap); });
+    wrap.addEventListener('focusout', function () {
+      setTimeout(function () {
+        if (!wrap._pinned && !wrap.matches(':focus-within') && !wrap.matches(':hover')) hideTip(wrap);
+      }, 0);
+    });
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (wrap._pinned) hideTip(wrap);
+      else { wrap._pinned = true; showTip(wrap); }
+    });
+    return wrap;
+  }
+
+  function setTipContent(wrap, content) {
+    if (!wrap) return;
+    const pop = tipParts(wrap).pop;
+    if (pop.innerHTML !== content) pop.innerHTML = content;
+    if (tipOpen === wrap) placeTip(wrap);
+  }
+
+  function showTip(wrap) {
+    if (tipOpen === wrap) return;
+    if (tipOpen) hideTip(tipOpen);
+    const p = tipParts(wrap);
+    p.pop.hidden = false;
+    p.btn.setAttribute('aria-expanded', 'true');
+    wrap.classList.add('is-open');
+    tipOpen = wrap;
+    placeTip(wrap);
+  }
+
+  function hideTip(wrap) {
+    if (!wrap) return;
+    const p = tipParts(wrap);
+    p.pop.hidden = true;
+    p.btn.setAttribute('aria-expanded', 'false');
+    wrap.classList.remove('is-open');
+    wrap._pinned = false;
+    if (tipOpen === wrap) tipOpen = null;
+  }
+
+  /* default = below the button, centred. Flip up when there is more room above; grow leftwards / rightwards
+     when it would cross a side edge; as a last resort nudge it with an inline `translate`. */
+  function placeTip(wrap) {
+    const p = tipParts(wrap), pop = p.pop, M = 8;
+    pop.classList.remove('is-above', 'is-left', 'is-right');
+    pop.style.translate = '';
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    const b = p.btn.getBoundingClientRect();
+    let r = pop.getBoundingClientRect();
+    if (r.bottom > vh - M && b.top > vh - b.bottom) { pop.classList.add('is-above'); r = pop.getBoundingClientRect(); }
+    if (r.left < M) { pop.classList.add('is-right'); r = pop.getBoundingClientRect(); }
+    else if (r.right > vw - M) { pop.classList.add('is-left'); r = pop.getBoundingClientRect(); }
+    let dx = 0;
+    if (r.left < M) dx = M - r.left;
+    else if (r.right > vw - M) dx = (vw - M) - r.right;
+    if (dx) pop.style.translate = Math.round(dx) + 'px 0';
+    /* where the button's centre sits along the pop, so a CSS arrow can point at it after a nudge */
+    pop.style.setProperty('--tip-arrow-x', Math.round(b.left + b.width / 2 - (r.left + dx)) + 'px');
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && tipOpen) hideTip(tipOpen);   // focus stays on the button
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (tipOpen && !tipOpen.contains(e.target)) hideTip(tipOpen);
+  });
+  function repositionTip() {
+    if (!tipOpen || tipRaf) return;
+    tipRaf = requestAnimationFrame(function () { tipRaf = 0; if (tipOpen) placeTip(tipOpen); });
+  }
+  window.addEventListener('resize', repositionTip);
+  window.addEventListener('scroll', repositionTip, { passive: true });
+
+  function tipBody(lines) {
+    return (lines || []).map(function (s) { return '<p>' + Chem.subHTML(s) + '</p>'; }).join('');
+  }
+
   const SUBSHELLS_LOW_FIRST = Chem.SUBSHELLS.slice().sort((a, b) => a.rank - b.rank);
 
   /* ---------------- state ---------------- */
   const state = {
     sliceMode: 'orbital',
-    clickMode: 'explore',     // 'explore' = box click selects; 'fill' = box click toggles an electron
     selection: { level: 'orbital', id: '2px' },
     focusOrbital: null,       // orbital picked inside a subshell view
-    occupancy: Chem.emptyOccupancy(),
+    occupancy: Chem.emptyOccupancy(),   // read-only on screen: filled only by the element picker
     theme: root.getAttribute('data-theme') || 'light',
     anchor: '2px',            // the single orbital that anchors re-resolution when mode changes
-    lastElectron: null,       // {orbital, spin, removed}
-    message: '',              // transient error (e.g. 54 cap)
-    loadedZ: null,
+    loadedZ: null,            // element chosen in #element-select (null = none)
     hidden: new Set(),        // orbitals switched off via the legend; cleared whenever the selection changes
     hiddenKey: ''
   };
@@ -106,8 +259,6 @@
     state.sliceMode = mode;
     const a = Chem.getOrbital(state.anchor);
     if (!a) return;
-    state.lastElectron = null;
-    state.message = '';
     if (mode === 'orbital') {
       state.selection = { level: 'orbital', id: a.id };
       state.focusOrbital = null;
@@ -142,8 +293,6 @@
     state.sliceMode = 'subshell';
     state.selection = { level: 'subshell', id: subId };
     state.focusOrbital = null;
-    state.lastElectron = null;
-    state.message = '';
   }
 
   function selectShell(n) {
@@ -152,8 +301,6 @@
     state.sliceMode = 'shell';
     state.selection = { level: 'shell', id: n };
     state.focusOrbital = null;
-    state.lastElectron = null;
-    state.message = '';
   }
 
   /* ---------------- energy diagram ---------------- */
@@ -165,7 +312,8 @@
     diagramEl.textContent = '';
     const axis = el('div', 'energy-axis');
     axis.appendChild(el('span', 'energy-arrow', 'Energy ↑'));
-    axis.appendChild(el('span', 'energy-note', Chem.ENERGY_NOTE || ''));
+    /* the honest "schematic only" note lives in one tooltip instead of a paragraph */
+    axis.appendChild(tip('the energy axis', '<p>' + Chem.subHTML(Chem.ENERGY_NOTE || '') + '</p>', 'energy'));
     diagramEl.appendChild(axis);
 
     const high = Chem.SUBSHELLS.slice().sort((a, b) => b.rank - a.rank);
@@ -193,6 +341,9 @@
         b.dataset.orbital = oid;
         b.dataset.ml = o.ml;
         b.appendChild(el('span', 'ml-tag', fmtMl(o.ml)));
+        const nm = elHTML('span', 'orbital-name', orbitalHTML(oid, true));   // p<sub>x</sub>, d<sub>xy</sub> …
+        nm.setAttribute('aria-hidden', 'true');
+        b.appendChild(nm);
         boxes.appendChild(b);
         boxEls[oid] = b;
       });
@@ -237,14 +388,11 @@
         const e = el('span', 'electron', spin === 'up' ? '↑' : '↓');
         e.dataset.spin = spin;
         e.setAttribute('aria-hidden', 'true');
-        const last = state.lastElectron;
-        if (last && !last.removed && last.orbital === oid && last.spin === spin) e.classList.add('is-new');
         b.insertBefore(e, tagEl);
       });
       b.setAttribute('aria-label',
-        cleanLabel(o) + ' orbital, n=' + o.n + ', l=' + o.l + ', ml=' + fmtMl(o.ml) + '. ' +
-        'Spin up ' + (occ.up ? 'occupied' : 'empty') + ', spin down ' + (occ.down ? 'occupied' : 'empty') + '. ' +
-        (state.clickMode === 'fill' ? 'Press to add or remove an electron.' : 'Press to select.'));
+        orbitalText(oid) + ' orbital, n=' + o.n + ', l=' + o.l + ', ml=' + fmtMl(o.ml) + '. ' +
+        'Spin up ' + (occ.up ? 'occupied' : 'empty') + ', spin down ' + (occ.down ? 'occupied' : 'empty') + '. Press to select.');
     });
 
     rowEls.forEach(function (r) {
@@ -265,86 +413,95 @@
   }
 
   /* ---------------- info panel ---------------- */
+  /* The four quantum-number rows show the VALUES for the current selection. The reasons behind them
+     (Chem.describeSelection(...).explain) live in one tooltip per row, created once next to the row's name. */
+  const QN_KEYS = ['n', 'l', 'ml', 'ms'];
+  const QN_TIP_LABEL = { n: 'n', l: 'l', ml: 'mₗ', ms: 'mₛ' };
+  const qnTips = {};
+
+  // the <dt> that names a quantum number, found from its value cell whatever the markup around it
+  function qnHost(key) {
+    const dd = $('qn-' + key);
+    if (!dd) return null;
+    const prev = dd.previousElementSibling;
+    if (prev && prev.tagName === 'DT') return prev;
+    return (dd.parentElement && dd.parentElement.querySelector('dt')) || dd.parentElement;
+  }
+
+  function mountQnTips() {
+    realSubscripts($('qn-panel'));
+    QN_KEYS.forEach(function (k) {
+      const host = qnHost(k);
+      if (!host || qnTips[k]) return;
+      qnTips[k] = tip(QN_TIP_LABEL[k], '', k);          // ids tip-n, tip-l, tip-ml, tip-ms
+      host.appendChild(qnTips[k]);
+    });
+  }
+
+  function setShellAttr(node, n) {
+    if (!node) return;
+    if (n == null) node.removeAttribute('data-shell'); else node.setAttribute('data-shell', String(n));
+  }
+
   function updateInfo() {
     const sel = state.selection;
     const d = (function () { try { return Chem.describeSelection(sel.level, sel.id) || {}; } catch (e) { return {}; } })();
-    const title = $('selection-title');
-    const rules = $('qn-rules');
-    rules.textContent = '';
+    const n1 = d.n && d.n.length === 1 ? d.n[0] : null;     // the shell colour hook: set when the selection has a single n
 
-    const le = state.lastElectron;
-    if (le) {
-      const o = Chem.getOrbital(le.orbital);
-      const spinV = le.spin === 'up' ? 0.5 : -0.5;
-      const qn = (Chem.quantumNumbersFor && Chem.quantumNumbersFor(le.orbital, le.spin)) || { n: o.n, l: o.l, ml: o.ml, ms: spinV };
-      title.textContent = 'Electron ' + (le.removed ? 'just removed from ' : 'just added to ') + cleanLabel(o) + ' (' + spinName(le.spin) + ')';
-      $('qn-n').textContent = String(qn.n);
-      $('qn-l').textContent = lText(qn.l);
-      $('qn-ml').textContent = fmtMl(qn.ml);
-      $('qn-ms').textContent = fmtMs(qn.ms) + ' (' + spinName(le.spin) + ')';
-      rules.appendChild(el('li', null, 'Four numbers (n, l, mₗ, mₛ) = (' + qn.n + ', ' + qn.l + ', ' + fmtMl(qn.ml) + ', ' + fmtMs(qn.ms) + ') identify this one electron.'));
-      rules.appendChild(el('li', null, 'Pauli exclusion principle: no two electrons in an atom share all four numbers, so an orbital holds at most two electrons, with opposite mₛ.'));
+    const title = $('selection-title');
+    if (sel.level === 'orbital') {
+      title.innerHTML = orbitalHTML(sel.id) + ' orbital';
+    } else if (sel.level === 'subshell') {
+      title.innerHTML = Chem.subHTML(String(sel.id)) + ' subshell' +
+        (state.focusOrbital ? ' <span class="title-focus">(focus: ' + orbitalHTML(state.focusOrbital) + ')</span>' : '');
     } else {
-      if (sel.level === 'orbital') {
-        const o = Chem.getOrbital(sel.id);
-        title.textContent = cleanLabel(o) + ' orbital';
-      } else if (sel.level === 'subshell') {
-        title.textContent = sel.id + ' subshell' + (state.focusOrbital ? ' (focus: ' + cleanLabel(Chem.getOrbital(state.focusOrbital)) + ')' : '');
-      } else {
-        title.textContent = 'Shell n = ' + sel.id;
-      }
-      $('qn-n').textContent = fmtList(d.n || []);
-      $('qn-l').textContent = fmtList(d.l || [], lText);
-      $('qn-ml').textContent = fmtList(d.ml || [], fmtMl);
-      const ms = $('qn-ms');
-      ms.textContent = '±½ ';
-      ms.appendChild(el('span', 'ms-note', '(+½ or −½; click an electron slot to see one electron’s four numbers)'));
-      (d.rules || []).forEach((r) => rules.appendChild(el('li', null, r)));
+      title.textContent = 'Shell n = ' + sel.id;
     }
+    setShellAttr(title, n1);
+
+    const nEl = $('qn-n');
+    nEl.textContent = fmtList(d.n || []);
+    setShellAttr(nEl, n1);
+    $('qn-l').textContent = fmtList(d.l || [], lText);
+    const ml = $('qn-ml');
+    if (sel.level === 'subshell') {
+      // each mₗ with the box it tags, e.g. "−1 (p_y), 0 (p_z), +1 (p_x)"
+      ml.innerHTML = Chem.selectionToOrbitals('subshell', sel.id).map(Chem.getOrbital)
+        .sort(function (a, b) { return a.ml - b.ml; })
+        .map(function (o) { return fmtMl(o.ml) + ' (' + orbitalHTML(o.id, true) + ')'; }).join(', ');
+    } else {
+      ml.textContent = fmtList(d.ml || [], fmtMl);
+    }
+    $('qn-ms').textContent = '+½ or −½';
+    const rules = $('qn-rules');           // no longer a visible list: the sentences are in the tooltips
+    if (rules) rules.textContent = '';
+
+    QN_KEYS.forEach(function (k) { setTipContent(qnTips[k], tipBody((d.explain || {})[k])); });
   }
 
   /* ---------------- configuration panel ---------------- */
+  /* Electrons are read-only here: they come from the element picker and always show the ground state,
+     so there are no Aufbau / Hund / Pauli complaints to make, only the configuration and any anomaly. */
   function updateConfig() {
     const total = Chem.totalElectrons(state.occupancy);
-    $('electron-count').textContent = total + ' / ' + Chem.MAX_ELECTRONS;
-    let a = {};
-    try { a = Chem.assess(state.occupancy) || {}; } catch (e) { a = {}; }
+    const Z = state.loadedZ;
+    $('electron-count').textContent = total ? total + (total === 1 ? ' electron' : ' electrons') : '';
     const nt = $('config-notation');
-    nt.textContent = total ? (a.notation || '') : '(empty)';
-    if (total && a.shorthand && a.shorthand !== a.notation) {
-      nt.appendChild(el('span', 'config-shorthand', '  ·  ' + a.shorthand));
-    }
-
     const st = $('config-status');
+    nt.textContent = '';
     st.textContent = '';
-    function line(kind, text) { const p = el('p', 'status-line ' + kind, text); st.appendChild(p); }
-    if (state.message) line('is-error', state.message);
-    if (!total) {
-      line('is-ok', 'No electrons yet. Click a box half to add one, or load an element.');
-    } else {
-      const RULE = { aufbau: 'Aufbau', hund: 'Hund', pauli: 'Pauli' };
-      const viol = a.violations || [];
-      viol.slice(0, 3).forEach(function (v) {
-        const nm = RULE[v.rule] || v.rule;
-        line('is-warn', v.message.toLowerCase().indexOf(String(nm).toLowerCase()) === 0 ? v.message : nm + ': ' + v.message);
-      });
-      if (viol.length > 3) line('is-warn', '…and ' + (viol.length - 3) + ' more rule problem' + (viol.length - 3 > 1 ? 's' : '') + '.');
-      if (!(a.violations && a.violations.length)) {
-        if (a.matchesElement) {
-          const e = Chem.ELEMENTS.find((x) => x.Z === a.matchesElement);
-          line('is-ok', 'Ground-state configuration of ' + (e ? e.name + ' (' + e.symbol + ', Z = ' + e.Z + ')' : 'Z = ' + a.matchesElement) + '.');
-        } else if (a.isGroundState === false) {
-          line('is-warn', 'Allowed by the rules, but not the ground-state arrangement for ' + total + ' electrons (an excited state).');
-        } else if (a.isGroundState) {
-          line('is-ok', 'Follows the Aufbau, Hund and Pauli rules.');
-        }
-      }
-      if (a.matchesElement) {
-        const an = Chem.anomalyOf(a.matchesElement);
-        if (an) {
-          line('is-warn', 'Anomaly: the Aufbau order predicts ' + an.expected + ', but the real ground state is ' + an.actual + '. ' + (an.reason || ''));
-        }
-      }
+    function line(kind, text) { st.appendChild(el('p', 'status-line ' + kind, text)); }
+    if (!Z) return;   /* nothing chosen: the picker label says it all, so show nothing */
+    const counts = Chem.configCounts(Z);
+    const full = Chem.formatConfig(counts);
+    const short = Chem.formatConfig(counts, { shorthand: true });
+    nt.textContent = full;
+    if (short !== full) nt.appendChild(el('span', 'config-shorthand', '  ·  ' + short));
+    const e = Chem.elementOf(Z);
+    line('is-ok', 'Ground-state configuration of ' + e.name + ' (' + e.symbol + ', Z = ' + Z + ').');
+    const an = Chem.anomalyOf(Z);
+    if (an) {
+      line('is-warn', 'Anomaly: the Aufbau order predicts ' + an.expectedPretty + ', but the real ground state is ' + an.actualPretty + '. ' + (an.reason || ''));
     }
   }
 
@@ -356,6 +513,9 @@
   const DEFAULT_VIEW = { azimuth: Math.PI / 4, polar: 1.1 };
   /* default zoom, relative to the fit for the largest shell, n = 5 (×1.00 = a 5-shell orbital fills the view) */
   const DEFAULT_ZOOM = 0.7;
+  /* render layers (see v.draw): 0 is the scene as such, 1 holds the axis lines and cones once more,
+     2 and up are one each for the solid orbitals that are fading, 31 is never drawn */
+  const AXIS_LAYER = 1, FIRST_FADE_LAYER = 2, SPARE_LAYER = 31;
 
   function cssVar(name, fallback) {
     try {
@@ -391,9 +551,13 @@
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
     camera.up.set(0, 0, 1);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+    const amb = new THREE.AmbientLight(0xffffff, 0.75); scene.add(amb);
     const l1 = new THREE.DirectionalLight(0xffffff, 0.6); l1.position.set(3, 4, 5); scene.add(l1);
     const l2 = new THREE.DirectionalLight(0xffffff, 0.35); l2.position.set(-4, -3, -2); scene.add(l2);
+    /* the scene is drawn in several passes (see v.draw), each showing only some layers: every pass needs the lights */
+    [amb, l1, l2].forEach(function (light) { light.layers.enableAll(); });
+    /* a pass does its own clearing, so that depth can be reset between orbitals */
+    renderer.autoClear = false;
 
     const v = {
       renderer, scene, camera, canvas,
@@ -411,12 +575,44 @@
       v.dirty = true;
       requestAnimationFrame(v.draw);
     };
+    /* Drawing, in passes. Layer 0 holds the scene as such: the axes, the settled orbitals and the
+       translucent ones. A solid orbital that is fading in or out also has a depth-only twin (see
+       setDepthPrepass), and the depth that twin writes must never hide anything but the orbital
+       itself, so each such orbital gets a pass of its own, on its own layer (2, 3, ...), after
+       the depth buffer has been reset. Layer 1 holds the axis lines and cones once more: drawn
+       depth-only at the start of each of those passes, they let an axis that is really in front
+       of the orbital stay in front of it. Orbitals are layered over each other in this order
+       (the more opaque, the later), which for a cross-fade is as good as any depth order. */
+    const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false });
     v.draw = function () {
       v.dirty = false;
       const sp = Math.sin(v.polar);
       camera.position.set(v.dist * sp * Math.cos(v.azimuth), v.dist * sp * Math.sin(v.azimuth), v.dist * Math.cos(v.polar));
       camera.lookAt(0, 0, 0);
-      renderer.render(scene, camera);
+      const fading = [];
+      v.items.forEach(function (it) { if (it.depth) fading.push(it); });
+      fading.sort(function (a, b) { return (a.to - b.to) || (b.n - a.n); });
+      /* give every one its layer before anything is drawn, so no two of them share a pass;
+         one that is all but invisible gets the spare layer, which is never drawn */
+      const passes = [];
+      fading.forEach(function (it) {
+        const seen = it.mesh.material.opacity > 0.002;
+        const layer = seen ? Math.min(FIRST_FADE_LAYER + passes.length, SPARE_LAYER - 1) : SPARE_LAYER;
+        it.mesh.layers.set(layer); it.depth.layers.set(layer);
+        if (seen) passes.push(layer);
+      });
+      try {
+        renderer.clear();
+        camera.layers.set(0);
+        renderer.render(scene, camera);
+        passes.forEach(function (layer) {
+          renderer.clearDepth();
+          scene.overrideMaterial = depthOnly; camera.layers.set(AXIS_LAYER); renderer.render(scene, camera); scene.overrideMaterial = null;
+          camera.layers.set(layer); renderer.render(scene, camera);
+        });
+      } finally {
+        scene.overrideMaterial = null; camera.layers.set(0);
+      }
       updateZoomReadout();
     };
     function resize() {
@@ -523,10 +719,13 @@
     dirs.forEach(function (d) {
       const dir = new THREE.Vector3(d[1][0], d[1][1], d[1][2]);
       const geo = new THREE.BufferGeometry().setFromPoints([dir.clone().multiplyScalar(-L * 0.6), dir.clone().multiplyScalar(L)]);
-      viewer.axes.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.7 })));
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.7 }));
+      line.layers.enable(AXIS_LAYER);   // also on the axis layer, which re-draws their depth for the orbital passes (see v.draw)
+      viewer.axes.add(line);
       const cone = new THREE.Mesh(new THREE.ConeGeometry(L * 0.03, L * 0.1, 12), new THREE.MeshBasicMaterial({ color: color }));
       cone.position.copy(dir.clone().multiplyScalar(L));
       cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      cone.layers.enable(AXIS_LAYER);
       viewer.axes.add(cone);
       const sp = labelSprite(d[0], color, L * 0.2);
       sp.position.copy(dir.clone().multiplyScalar(L * 1.14));
@@ -600,16 +799,21 @@
 
   const MODE_OPACITY = { solid: 1, clear: 0.32, ghost: 0.16 };
 
+  /* the + and − lobes get the theme's two colours, one RGB triple per vertex */
+  function paintLobes(col, signs, colors) {
+    for (let i = 0; i < signs.length; i++) {
+      const c = signs[i] < 0 ? colors.neg : colors.pos;
+      col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b;
+    }
+  }
+
   function buildOrbitalMesh(id, colors) {
     const data = meshData(id);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
     geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
     const col = new Float32Array(data.signs.length * 3);
-    for (let i = 0; i < data.signs.length; i++) {
-      const c = data.signs[i] < 0 ? colors.neg : colors.pos;
-      col[3 * i] = c.r; col[3 * i + 1] = c.g; col[3 * i + 2] = c.b;
-    }
+    paintLobes(col, data.signs, colors);
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeVertexNormals();
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false });
@@ -635,12 +839,11 @@
       wanted.add(p.id);
       let it = v.items.get(p.id);
       if (!it) {
-        it = { mesh: buildOrbitalMesh(p.id, colors), size: s };
+        it = { mesh: buildOrbitalMesh(p.id, colors), size: s, n: o.n };
         it.mesh.scale.setScalar(s * 0.86);
         v.items.set(p.id, it);
         v.group.add(it.mesh);
       }
-      it.prevMode = it.mode;
       it.mode = p.mode; it.to = MODE_OPACITY[p.mode]; it.leaving = false;
       /* translucent surfaces draw after solid ones; larger n first so nested smaller orbitals stay on top */
       it.mesh.renderOrder = p.mode === 'solid' ? 0 : 1 + (10 - o.n);
@@ -663,35 +866,66 @@
      be drawn, so lobes look bent and protruding until the fade ends and the surface turns opaque.
      A depth-only twin drawn first (no colour) leaves just the nearest layer visible, so the shape
      is right from the first frame and nothing changes when the fade finishes. The translucent
-     "clear" and "ghost" orbitals deliberately skip this: they are meant to be seen through. */
+     "clear" and "ghost" orbitals deliberately skip this: they are meant to be seen through.
+     The twin writes real depth, though, and a surface that is mostly faded out must not hide
+     anything behind it (the orbital that is fading in, say). So the pair, mesh and twin, is moved
+     off the main layer and drawn on a layer of its own, after a depth reset, by v.draw: its depth
+     reaches nothing but itself. Nothing is left over once the fade has ended. */
   function setDepthPrepass(it, on) {
     const v = viewer;
     if (on && !it.depth) {
       it.depth = new THREE.Mesh(it.mesh.geometry, new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide }));
+      it.mesh.layers.set(FIRST_FADE_LAYER); it.depth.layers.set(FIRST_FADE_LAYER);   // off the main layer at once; v.draw sorts out which pass
       v.group.add(it.depth);
     } else if (!on && it.depth) {
       v.group.remove(it.depth); it.depth.material.dispose(); it.depth = null;   /* geometry is shared with it.mesh */
+      it.mesh.layers.set(0);
     }
     if (it.depth) it.depth.scale.copy(it.mesh.scale);
+  }
+
+  /* take an orbital off the stage for good */
+  function dropItem(it, id) {
+    setDepthPrepass(it, false);
+    viewer.group.remove(it.mesh); disposeObject(it.mesh);
+    viewer.items.delete(id);
+  }
+
+  /* an orbital at rest: the target opacity, opaque and depth-writing if solid, blended if translucent */
+  function settleItem(it) {
+    const m = it.mesh.material, solid = it.mode === 'solid';
+    const flip = m.transparent === solid || m.depthWrite !== solid;
+    m.opacity = it.to; m.transparent = !solid; m.depthWrite = solid;
+    if (flip) m.needsUpdate = true;
+    it.settled = it.mode;
   }
 
   function playFade() {
     const v = viewer;
     if (v.fade) { v.fade.cancel(); v.fade = null; }
+    /* an orbital that was on its way out and has all but gone (a quick succession of clicks) is not worth fading any further */
+    v.items.forEach(function (it, id) { if (it.leaving && it.mesh.material.opacity < 0.01) dropItem(it, id); });
     let changing = false;
     v.items.forEach(function (it) {
       const m = it.mesh.material;
       it.from = m.opacity; it.fromSize = it.mesh.scale.x;
       if (it.fromSize !== it.size) changing = true;
+      const fading = it.from !== it.to;
       /* a surface has to blend while its opacity is changing */
-      if (it.from !== it.to) {
-        changing = true; m.transparent = true; m.depthWrite = false; m.needsUpdate = true;
-        setDepthPrepass(it, it.mode === 'solid' || it.prevMode === 'solid');
+      if (fading) {
+        changing = true;
+        if (!m.transparent || m.depthWrite) { m.transparent = true; m.depthWrite = false; m.needsUpdate = true; }
+      } else {
+        settleItem(it);
       }
+      /* the nearest-layer look is kept from the moment an orbital is, was, or is still becoming solid
+         until its fade ends (the twin can come and go only at the ends of a fade, never inside one) */
+      setDepthPrepass(it, fading && (it.mode === 'solid' || it.settled === 'solid' || !!it.depth));
     });
     /* nothing on stage differs (an electron was toggled, say): one repaint is enough */
-    if (!changing) { v.dirty = false; v.requestRender(); return; }
-    v.fade = Motion.tween({
+    if (!changing) { v.items.forEach(settleItem); v.dirty = false; v.requestRender(); return; }
+    let finished = false;
+    const tween = Motion.tween({
       easing: 'ui',
       update: function (p) {
         v.items.forEach(function (it) {
@@ -702,24 +936,31 @@
         v.requestRender();
       },
       done: function () {
+        finished = true;
         v.items.forEach(function (it, id) {
           setDepthPrepass(it, false);
-          if (it.leaving) { v.group.remove(it.mesh); disposeObject(it.mesh); v.items.delete(id); return; }
-          const m = it.mesh.material, solid = it.mode === 'solid';
-          m.opacity = it.to; m.transparent = !solid; m.depthWrite = solid; m.needsUpdate = true;
+          if (it.leaving) { dropItem(it, id); return; }
+          settleItem(it);
         });
         v.fade = null;
         v.dirty = false; v.requestRender();
       }
     });
+    /* with reduced motion the tween has already finished, inside the call above */
+    v.fade = finished ? null : tween;
   }
 
-  /* the lobe colours are baked into each mesh, so a theme change rebuilds them in place */
+  /* the lobe colours are baked into each mesh, so a theme change repaints them in place: what is on
+     stage (and how far a fade has got) stays as it is, and only the colours, and the axes, change */
   function recolourViewer() {
     if (!viewer) return;
-    if (viewer.fade) { viewer.fade.cancel(); viewer.fade = null; }
-    clearGroup(viewer.group);
-    viewer.items.clear();
+    const colors = themeColors();
+    viewer.items.forEach(function (it, id) {
+      const attr = it.mesh.geometry.getAttribute('color');
+      paintLobes(attr.array, meshData(id).signs, colors);
+      attr.needsUpdate = true;
+    });
+    viewer.axisKey = '';   // the axis colour follows the theme as well
     updateViewer();
   }
 
@@ -728,7 +969,7 @@
     legendEl.textContent = '';
     const shown = plan.filter((p) => !p.hidden).length;
     const head = el('p', 'legend-title', plan.length > 1
-      ? 'Drawn orbitals (' + shown + ' of ' + plan.length + ') — click one to hide or show it'
+      ? 'Drawn orbitals (' + shown + ' of ' + plan.length + ') · click to hide or show'
       : 'Drawn orbital');
     legendEl.appendChild(head);
     plan.forEach(function (p) {
@@ -737,8 +978,9 @@
       const item = el('button', 'legend-item ' + kind + (p.hidden ? ' is-hidden' : ''));
       item.type = 'button';
       item.setAttribute('data-orbital', p.id);
+      item.setAttribute('data-n', o.n);   // shell colour hook
       item.setAttribute('aria-pressed', p.hidden ? 'false' : 'true');
-      item.setAttribute('aria-label', cleanLabel(o) + ': ' + (p.hidden ? 'hidden, press to show' : 'shown, press to hide'));
+      item.setAttribute('aria-label', orbitalText(p.id) + ': ' + (p.hidden ? 'hidden, press to show' : 'shown, press to hide'));
       item.addEventListener('click', function () {
         if (state.hidden.has(p.id)) state.hidden.delete(p.id); else state.hidden.add(p.id);
         updateViewer();
@@ -749,7 +991,7 @@
       a.setAttribute('aria-hidden', 'true'); b.setAttribute('aria-hidden', 'true');
       chips.appendChild(a); chips.appendChild(b);
       item.appendChild(chips);
-      item.appendChild(el('span', 'legend-name', cleanLabel(o)));
+      item.appendChild(elHTML('span', 'legend-name', orbitalHTML(p.id)));
       item.appendChild(el('span', 'legend-state', p.hidden ? 'hidden' : p.mode === 'solid' ? 'solid' : p.mode === 'ghost' ? 'transparent' : 'translucent'));
       legendEl.appendChild(item);
     });
@@ -770,32 +1012,29 @@
 
   /* ---------------- slicers & hint ---------------- */
   const HINTS = {
-    orbital: 'Click a box to see one orbital; a subshell label or n tag switches level.',
-    subshell: 'Click a box or a subshell label: the whole subshell is drawn translucent; a box you pick stays solid while its siblings turn transparent.',
-    shell: 'Click any box or an n tag: every orbital in that shell is drawn translucent so you can see inside. Click an orbital under the 3-D view to hide or show it.'
+    orbital: 'Click a box to see one orbital.',
+    subshell: 'Click a box or a subshell label to see all its orbitals.',
+    shell: 'Click a box or an n tag to see every orbital in that shell.'
   };
 
   function renderAll() {
     const radios = document.querySelectorAll('input[name="slice-mode"]');
     radios.forEach((r) => { r.checked = r.value === state.sliceMode; });
-    $('slice-hint').textContent = HINTS[state.sliceMode] + (state.clickMode === 'fill'
-      ? ' Fill mode: clicking a box half adds or removes an electron and does not change the selection.'
-      : ' Explore mode: clicking a box never changes electrons.');
-    document.querySelectorAll('input[name="click-mode"]').forEach((r) => { r.checked = r.value === state.clickMode; });
+    $('slice-hint').textContent = HINTS[state.sliceMode];
     updateDiagram();
     updateInfo();
     updateConfig();
     updateViewer();
   }
 
-  // Lighter refresh when only the electrons changed
+  // Lighter refresh when only the electrons changed (a new element was picked)
   function renderElectrons() {
     updateDiagram();
-    updateInfo();
     updateConfig();
   }
 
   /* ---------------- events ---------------- */
+  /* Clicking in the diagram only ever selects. Electrons are never added or removed here. */
   diagramEl.addEventListener('click', function (e) {
     const box = e.target.closest('.orbital-box');
     const label = e.target.closest('.subshell-label');
@@ -809,54 +1048,8 @@
       renderAll(); return;
     }
     if (!box) return;
-    const oid = box.dataset.orbital;
-
-    const eSpan = e.target.closest('.electron');
-    const occ = state.occupancy[oid] || { up: false, down: false };
-    const fill = state.clickMode === 'fill';
-
-    if (!fill && !eSpan) {
-      // explore: select only, never touch electrons
-      const before = state.selection.level + ':' + state.selection.id + ':' + state.focusOrbital + ':' + state.anchor;
-      selectBox(oid);
-      state.lastElectron = null;
-      state.message = '';
-      renderAll();
-      void before;
-      return;
-    }
-
-    // which spin? clicked electron, else the clicked half; keyboard: first free slot
-    let spin;
-    if (eSpan) spin = eSpan.dataset.spin;
-    else if (e.detail === 0 && !e.clientX && !e.clientY) spin = !occ.up ? 'up' : 'down';
-    else {
-      const r = box.getBoundingClientRect();
-      spin = (e.clientX - r.left) < r.width / 2 ? 'up' : 'down';
-    }
-
-    state.message = '';
-    const wasOn = !!occ[spin];
-    let res;
-    try { res = Chem.toggleElectron(state.occupancy, oid, spin); } catch (err) { res = { occ: state.occupancy, error: String(err.message || err) }; }
-    if (res.error) {
-      state.message = res.error;
-      state.lastElectron = null;
-    } else {
-      state.occupancy = res.occ;
-      state.lastElectron = { orbital: oid, spin: spin, removed: wasOn };
-      state.loadedZ = null;
-    }
-    renderElectrons();
-  });
-
-  document.querySelectorAll('input[name="click-mode"]').forEach(function (r) {
-    r.addEventListener('change', function () {
-      if (!r.checked) return;
-      state.clickMode = r.value;
-      state.lastElectron = null;
-      renderAll();
-    });
+    selectBox(box.dataset.orbital);
+    renderAll();
   });
 
   document.querySelectorAll('input[name="slice-mode"]').forEach(function (r) {
@@ -885,29 +1078,35 @@
     });
   });
 
+  /* ---------------- element picker ---------------- */
+  /* The only way electrons get into the boxes: pick an element and its ground state is drawn.
+     The first option clears them again. */
   const elementSelect = $('element-select');
-  Chem.ELEMENTS.forEach(function (e) {
-    const opt = document.createElement('option');
-    opt.value = e.Z; opt.textContent = e.Z + ' – ' + e.symbol + ' (' + e.name + ')';
-    elementSelect.appendChild(opt);
-  });
-  elementSelect.value = '6';
+  (function buildElementOptions() {
+    elementSelect.textContent = '';
+    const none = document.createElement('option');
+    none.value = ''; none.textContent = 'None (just explore)';
+    elementSelect.appendChild(none);
+    Chem.ELEMENTS.forEach(function (e) {
+      const opt = document.createElement('option');
+      opt.value = String(e.Z);
+      opt.textContent = e.symbol + ' — ' + e.name + ' (Z = ' + e.Z + ')';
+      elementSelect.appendChild(opt);
+    });
+    elementSelect.value = '';
+  })();
 
-  $('btn-load-element').addEventListener('click', function () {
-    const Z = Number(elementSelect.value);
-    const cfg = Chem.configOf(Z);
+  elementSelect.addEventListener('change', function () {
+    const Z = elementSelect.value === '' ? 0 : Number(elementSelect.value);
     const occ = Chem.emptyOccupancy();
-    Object.keys(cfg || {}).forEach(function (k) { if (occ[k]) occ[k] = { up: !!cfg[k].up, down: !!cfg[k].down }; });
+    if (Z >= 1 && Z <= Chem.MAX_ELECTRONS) {
+      const cfg = Chem.configOf(Z);
+      Object.keys(cfg || {}).forEach(function (k) { if (occ[k]) occ[k] = { up: !!cfg[k].up, down: !!cfg[k].down }; });
+      state.loadedZ = Z;
+    } else {
+      state.loadedZ = null;
+    }
     state.occupancy = occ;
-    state.loadedZ = Z;
-    state.lastElectron = null;
-    state.message = '';
-    renderElectrons();
-  });
-
-  $('btn-clear').addEventListener('click', function () {
-    state.occupancy = Chem.emptyOccupancy();
-    state.loadedZ = null; state.lastElectron = null; state.message = '';
     renderElectrons();
   });
 
@@ -921,6 +1120,7 @@
 
   /* ---------------- boot ---------------- */
   buildDiagram();
+  mountQnTips();
   $('axis-key').textContent = 'Axes: x, y, z (z is up)';
   initViewer();
   renderAll();

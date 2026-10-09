@@ -316,6 +316,71 @@ test('describeSelection', function () {
   // l = 0..n-1 in rules for n=4 mentions f is out of scope
   assert.ok(C.describeSelection('shell', 4).rules.some(function (r) { return /not shown/.test(r); }));
   assert.ok(C.ENERGY_NOTE.length > 20);
+  // short enough to live in a tooltip: at most two sentences
+  assert.ok(C.ENERGY_NOTE.split(/\.\s+/).length <= 2, 'ENERGY_NOTE is at most 2 sentences');
+});
+
+test('describeSelection explain (per quantum number, numbers follow the selection)', function () {
+  var sh2 = C.describeSelection('shell', 2);
+  ['n', 'l', 'ml', 'ms'].forEach(function (k) { assert.ok(Array.isArray(sh2.explain[k]) && sh2.explain[k].length >= 1, k); });
+  assert.ok(/n = 2 is the shell/.test(sh2.explain.n[0]));
+  assert.ok(sh2.explain.n.some(function (r) { return /2n² = 8 electrons \(n² = 4 orbitals × 2 spins\); here 8 electrons fit/.test(r); }));
+  assert.ok(sh2.explain.l.some(function (r) { return /0 to n−1, so n = 2 allows l = 0 \(s\), 1 \(p\)/.test(r); }));
+  assert.ok(sh2.explain.ml.some(function (r) { return /s has 1, p has 3 orbitals here, 4 in total/.test(r); }));
+  assert.ok(sh2.explain.ml.some(function (r) { return /labelling convention/.test(r) && /p_\{z\} = 0/.test(r); }));
+  assert.ok(/at most 2 electrons with opposite spins/.test(sh2.explain.ms[0]));
+
+  // subshell and lone orbital use their own phrasing but stay correct
+  var d3 = C.describeSelection('subshell', '3d');
+  assert.ok(d3.explain.n.some(function (r) { return /18 electrons; this subshell holds up to 10/.test(r); }));
+  assert.ok(d3.explain.l.some(function (r) { return /^l = 2 \(d\)/.test(r); }));
+  assert.ok(d3.explain.ml.some(function (r) { return /d has 5 orbitals/.test(r); }));
+  assert.ok(d3.explain.ml.some(function (r) { return /d_\{x²−y²\} = \+2/.test(r) && !/p_\{x\} = \+1/.test(r); }), 'd-only convention line');
+  var pz = C.describeSelection('orbital', '2pz');
+  assert.ok(pz.explain.l[0].indexOf('l = 1 (p)') === 0);
+  assert.ok(pz.explain.ml.some(function (r) { return /m_\{l\} = 0 \(l = 1 allows 3 values/.test(r); }));
+  assert.ok(pz.explain.n.some(function (r) { return /holds at most 2/.test(r); }));
+
+  // an s selection has no p/d convention note; n = 5 never prints an undefined letter
+  assert.ok(!C.describeSelection('orbital', '1s').explain.ml.some(function (r) { return /labelling convention/.test(r); }));
+  C.SHELLS.forEach(function (n) {
+    var d = C.describeSelection('shell', n);
+    d.rules.concat(d.explain.n, d.explain.l, d.explain.ml, d.explain.ms).forEach(function (r) { assert.ok(!/undefined|\?/.test(r), r); });
+  });
+  assert.ok(C.describeSelection('shell', 5).explain.l.some(function (r) { return /d, f, g subshells of n = 5 are not shown/.test(r); }));
+
+  // `rules` is plain text: no markup braces, subscripts written m_l / p_x, and no Unicode subscript letters
+  C.SUBSHELLS.forEach(function (s) {
+    [C.describeSelection('subshell', s.id), C.describeSelection('shell', s.n)].concat(
+      s.orbitalIds.map(function (oid) { return C.describeSelection('orbital', oid); })).forEach(function (d) {
+      d.rules.forEach(function (r) {
+        assert.ok(!/[_]\{|\}/.test(r), r);
+        assert.ok(!/[ₐ-ₜ]/.test(r), 'no Unicode subscript letters: ' + r);
+      });
+    });
+  });
+  assert.ok(!/[ₐ-ₜ]/.test(C.ENERGY_NOTE));
+});
+
+test('orbital labels: real subscripts for display, plain text for aria', function () {
+  var html = {
+    '1s': '1s', '2s': '2s', '2px': '2p<sub>x</sub>', '2py': '2p<sub>y</sub>', '2pz': '2p<sub>z</sub>',
+    '3dz2': '3d<sub>z²</sub>', '3dxz': '3d<sub>xz</sub>', '3dyz': '3d<sub>yz</sub>',
+    '3dx2-y2': '3d<sub>x²−y²</sub>', '3dxy': '3d<sub>xy</sub>', '5pz': '5p<sub>z</sub>'
+  };
+  Object.keys(html).forEach(function (id) { assert.strictEqual(C.orbitalHTML(id), html[id], id); });
+  assert.strictEqual(C.orbitalHTML('3dxy', { short: true }), 'd<sub>xy</sub>');
+  assert.strictEqual(C.orbitalHTML('4s', { short: true }), 's');
+  assert.strictEqual(C.orbitalPlain('3dx2-y2'), '3dx²−y²');
+  assert.strictEqual(C.orbitalPlain('2px'), '2px');
+  assert.strictEqual(C.orbitalHTML('nope'), '');
+  C.ORBITALS.forEach(function (o) {
+    assert.strictEqual(C.orbitalPlain(o.id), o.label, o.id);
+    assert.ok(/^[1-5][spd](<sub>[xyz²−]+<\/sub>)?$/.test(C.orbitalHTML(o.id)), o.id);
+  });
+  // subHTML escapes everything except its own <sub>
+  assert.strictEqual(C.subHTML('m_{l} <b>&'), 'm<sub>l</sub> &lt;b&gt;&amp;');
+  assert.strictEqual(C.subPlain('m_{l} and d_{x²−y²}'), 'm_l and d_x²−y²');
 });
 
 /* ---------- shapes ---------- */

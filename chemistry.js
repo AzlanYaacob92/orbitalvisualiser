@@ -60,7 +60,7 @@
       sub.orbitalIds.push(oid);
       ORBITALS.push({
         id: oid, subshellId: sid, n: n, l: l, ml: t[1],
-        label: sid + t[2], shortLabel: letter + t[2]
+        label: sid + t[2], shortLabel: letter + t[2], suffix: t[2]
       });
     });
     SUBSHELLS.push(sub);
@@ -71,6 +71,33 @@
   ORBITALS.forEach(function (o) { orbById[o.id] = o; });
   function getSubshell(id) { return subById[id] || null; }
   function getOrbital(id) { return orbById[id] || null; }
+
+  /* ---------------- labels: plain text and real subscripts ----------------
+   * Unicode has subscript x but no subscript y or z, so xy / xz / yz / z² cannot be written with
+   * Unicode subscripts. Instead the explanation strings in this file carry a tiny markup, _{...},
+   * for a subscript (m_{l}, p_{x}, d_{x²−y²}), and two helpers turn it into something displayable:
+   *   subHTML(s)  -> HTML-escaped string with <sub>…</sub>  (safe: everything else is escaped)
+   *   subPlain(s) -> plain text with m_l, p_x, d_x²−y²       (aria-labels, tests, textContent)
+   * Orbital names follow the same rule: orbitalHTML('3dxy') = '3d<sub>xy</sub>'. */
+  function escHTML(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function subHTML(s) { return escHTML(s).replace(/_\{([^}]*)\}/g, '<sub>$1</sub>'); }
+  function subPlain(s) { return String(s).replace(/_\{([^}]*)\}/g, '_$1'); }
+  // opts.short = true drops the principal quantum number (p<sub>x</sub> instead of 2p<sub>x</sub>)
+  function orbitalMarkup(id, opts) {
+    var o = orbById[id];
+    if (!o) return '';
+    var head = (opts && opts.short) ? LETTERS[o.l] : o.n + LETTERS[o.l];
+    return o.suffix ? head + '_{' + o.suffix + '}' : head;
+  }
+  function orbitalHTML(id, opts) { return subHTML(orbitalMarkup(id, opts)); }
+  // plain text for aria-labels / titles, written the way a screen reader copes with: 2px, 3dz², 3dx²−y²
+  function orbitalPlain(id, opts) {
+    var o = orbById[id];
+    if (!o) return '';
+    return ((opts && opts.short) ? LETTERS[o.l] : o.n + LETTERS[o.l]) + o.suffix;
+  }
 
   /* ---------------- elements ---------------- */
 
@@ -353,72 +380,122 @@
     throw new Error('Unknown selection level: ' + level);
   }
 
+  /* RULES: the general statements. They use the _{…} subscript markup (see subHTML / subPlain above). */
   var RULES = {
     n: 'n (principal quantum number) is a whole number 1, 2, 3, … and labels the shell; higher n means a bigger, higher-energy orbital on average.',
     l: 'l (subshell) can be any whole number from 0 up to n' + MINUS + '1 (l = 0, 1, 2 → s, p, d).',
-    ml: 'mₗ can be any whole number from ' + MINUS + 'l to +l, giving 2l + 1 orbitals in a subshell.',
-    ms: 'mₛ (spin) is +½ or ' + MINUS + '½, so one orbital holds at most 2 electrons with opposite spins (Pauli exclusion principle).',
+    ml: 'm_{l} can be any whole number from ' + MINUS + 'l to +l, giving 2l + 1 orbitals in a subshell.',
+    ms: 'm_{s} (spin) is +½ or ' + MINUS + '½, so one orbital holds at most 2 electrons with opposite spins (Pauli exclusion principle).',
     shellCapacity: 'A full shell holds 2n² electrons (n² orbitals × 2 spins).',
     subshellCapacity: 'A full subshell holds 2(2l + 1) electrons.',
-    pauli: 'Pauli exclusion: no two electrons in an atom share the same four quantum numbers (n, l, mₗ, mₛ).',
+    pauli: 'Pauli exclusion: no two electrons in an atom share the same four quantum numbers (n, l, m_{l}, m_{s}).',
     hund: 'Hund’s rule: orbitals of the same subshell fill one electron each (same spin) before any pair up.',
     aufbau: 'Aufbau/Madelung: fill subshells in order of increasing n + l, and for equal n + l the lower n first.',
     shapeNote: 'Each surface is the angular probability distribution |Y|² (boundary-surface style); the + / − colours show the sign (phase) of the wavefunction Y. Radial nodes are ignored.',
-    realOrbitals: 'The drawn orbitals are the REAL combinations (pₓ, p_y, d_xy …). pₓ and p_y are each mixtures of the mₗ = +1 and ' + MINUS + '1 states, so the mₗ tag on a box is a labelling convention (here: pₓ = +1, p_y = ' + MINUS + '1, p_z = 0), not a literal property of that shape.'
+    realOrbitals: realOrbitalsText([1, 2])
   };
 
   function uniqSorted(arr) {
     return arr.filter(function (v, i) { return arr.indexOf(v) === i; }).sort(function (a, b) { return a - b; });
   }
-  function listLetters(ls) { return ls.map(function (l) { return l + ' (' + LETTERS[l] + ')'; }).join(', '); }
+  // letters are only used for wording: shell n = 5 would allow l up to 4 (g)
+  var LETTERS_ALL = ['s', 'p', 'd', 'f', 'g'];
+  function listLetters(ls) { return ls.map(function (l) { return l + ' (' + (LETTERS_ALL[l] || '?') + ')'; }).join(', '); }
 
+  // The "real orbitals" caveat, worded for the l values actually on screen (p and/or d).
+  function realOrbitalsText(ls) {
+    var hasP = ls.indexOf(1) >= 0, hasD = ls.indexOf(2) >= 0;
+    var eg = [], mix = [], conv = [];
+    function tags(l) {
+      var sub = SUBSHELLS.filter(function (s) { return s.l === l; })[0];
+      return sub.orbitalIds.map(function (oid) {
+        return orbitalMarkup(oid, { short: true }) + ' = ' + signed(orbById[oid].ml);
+      }).join(', ');
+    }
+    if (hasP) {
+      eg.push('p_{x}', 'p_{y}');
+      mix.push('p_{x} and p_{y} are each mixtures of the m_{l} = +1 and ' + MINUS + '1 states');
+      conv.push(tags(1));
+    }
+    if (hasD) {
+      if (hasP) eg.push('d_{xy}'); else eg.push('d_{xz}', 'd_{xy}');
+      if (hasP) mix.push('d_{xz}, d_{yz}, d_{x²−y²} and d_{xy} likewise mix +m_{l} with ' + MINUS + 'm_{l}');
+      else mix.push('d_{xz} and d_{yz} are mixtures of m_{l} = +1 and ' + MINUS + '1 (d_{x²−y²} and d_{xy} of +2 and ' + MINUS + '2)');
+      conv.push(tags(2));
+    }
+    return 'The drawn orbitals are the REAL combinations (' + eg.join(', ') + ' …). ' + mix.join('; ') +
+      ', so the m_{l} tag on a box is a labelling convention (here: ' + conv.join('; ') + '), not a literal property of that shape.';
+  }
+
+  /* describeSelection(level, id): what is selected and why those quantum numbers are allowed.
+   *   n, l, ml   sorted arrays of the values present; ms is [0.5, -0.5]
+   *   rules      flat array of plain-text sentences (subscripts written m_l, p_x …)
+   *   explain    { n:[…], l:[…], ml:[…], ms:[…] } the same sentences grouped by quantum number, in the
+   *              _{…} subscript markup: run each through subHTML() for display or subPlain() for text.
+   *              The numbers (2n² = 8, 3 orbitals …) are computed for this selection. */
   function describeSelection(level, id) {
     var ids = selectionToOrbitals(level, id);
     var orbs = ids.map(getOrbital);
     var ns = uniqSorted(orbs.map(function (o) { return o.n; }));
     var ls = uniqSorted(orbs.map(function (o) { return o.l; }));
     var mls = uniqSorted(orbs.map(function (o) { return o.ml; }));
-    var rules = [], title, capacity = orbs.length * 2, fullCapacity = capacity;
+    var count = orbs.length, capacity = count * 2, fullCapacity = capacity;
     var hasReal = orbs.some(function (o) { return o.l >= 1; });
+    var N = ns[0];
+    var title;
+    var X = { n: [], l: [], ml: [], ms: [] };
+
+    var shellTotal = 2 * N * N;
+    var allL = []; for (var q = 0; q < N; q++) allL.push(q);
+    var nDef = 'It can be any whole number 1, 2, 3, … and sets the size and the energy scale.';
+    var allowed = 'l runs from 0 to n' + MINUS + '1, so n = ' + N + ' allows l = ' + listLetters(allL) + '.';
+    var mlRule = 'For each l, m_{l} runs from ' + MINUS + 'l to +l (2l + 1 values)';
 
     if (level === 'shell') {
-      var n = +id;
-      title = 'Shell n = ' + n;
-      fullCapacity = 2 * n * n;
-      var allL = []; for (var q = 0; q < n; q++) allL.push(q);
-      rules.push('n = ' + n + ' is the shell (principal quantum number). It can be any whole number 1, 2, 3, … and sets the size and the energy scale.');
-      rules.push('l runs from 0 to n' + MINUS + '1, so n = ' + n + ' allows l = ' + listLetters(allL) + '.');
-      rules.push('For each l, mₗ runs from ' + MINUS + 'l to +l (2l + 1 values): ' +
-        ls.map(function (l) { return LETTERS[l] + ' has ' + (2 * l + 1); }).join(', ') + ' orbital' + (orbs.length === 1 ? '' : 's') + ' here, ' + orbs.length + ' in total.');
-      rules.push('A full shell holds 2n² = ' + fullCapacity + ' electrons (n² = ' + n * n + ' orbitals × 2 spins); here ' + capacity + ' electrons fit in the orbitals shown.');
-      if (ls.length < n) rules.push('Scope note: this app only draws 1s to 5p, so the ' + LETTERS.slice(ls.length, n).join(', ') + ' subshell' + (n - ls.length > 1 ? 's' : '') + ' of n = ' + n + ' (d, f … or higher) are not shown.');
+      title = 'Shell n = ' + N;
+      fullCapacity = shellTotal;
+      X.n.push('n = ' + N + ' is the shell (principal quantum number). ' + nDef);
+      X.n.push('A full shell holds 2n² = ' + shellTotal + ' electrons (n² = ' + N * N + ' orbitals × 2 spins); here ' + capacity + ' electrons fit in the orbitals shown.');
+      X.l.push(allowed);
+      X.l.push('A subshell is the set of orbitals with the same n and l; it holds 2(2l + 1) electrons.');
+      if (ls.length < N) {
+        var missing = LETTERS_ALL.slice(ls.length, N);
+        X.l.push('Scope note: this app only draws 1s to 5p, so the ' + missing.join(', ') + ' subshell' + (missing.length > 1 ? 's' : '') + ' of n = ' + N + (missing.length > 1 ? ' are' : ' is') + ' not shown.');
+      }
+      X.ml.push(mlRule + ': ' + ls.map(function (l) { return LETTERS[l] + ' has ' + (2 * l + 1); }).join(', ') +
+        ' orbital' + (count === 1 ? '' : 's') + ' here' + (ls.length > 1 ? ', ' + count + ' in total' : '') + '.');
     } else if (level === 'subshell') {
-      var sub = getSubshell(id);
+      var sub = getSubshell(id), L = sub.l;
       title = 'Subshell ' + sub.id;
-      rules.push('n = ' + sub.n + ': this subshell sits in shell ' + sub.n + '.');
-      rules.push('l = ' + sub.l + ' (' + sub.letter + ') is allowed because l can be 0 up to n' + MINUS + '1 = ' + (sub.n - 1) + '.');
-      rules.push('mₗ runs from ' + MINUS + sub.l + ' to +' + sub.l + ', which is ' + (2 * sub.l + 1) + ' value' + (sub.l ? 's' : '') + ' (' + mls.map(signed).join(', ') + ') → ' + (2 * sub.l + 1) + ' orbital' + (sub.l ? 's' : '') + ' of equal energy.');
-      rules.push('A full subshell holds 2(2l + 1) = ' + sub.capacity + ' electrons.');
+      X.n.push('n = ' + N + ': this subshell sits in shell ' + N + ' (the principal quantum number). ' + nDef);
+      X.n.push('A full shell holds 2n² = ' + shellTotal + ' electrons; this subshell holds up to ' + sub.capacity + ' of them.');
+      X.l.push('l = ' + L + ' (' + sub.letter + '): ' + allowed);
+      X.l.push('A subshell is the set of orbitals with the same n and l; a full ' + sub.id + ' holds 2(2l + 1) = ' + sub.capacity + ' electrons.');
+      X.ml.push(mlRule + ': ' + sub.letter + ' has ' + (2 * L + 1) + ' orbital' + (L ? 's' : '') + ' here (m_{l} = ' + mls.map(signed).join(', ') + ')' + (L ? ', all of equal energy.' : '.'));
     } else {
-      var orb = orbs[0];
+      var orb = orbs[0], oL = orb.l;
       title = 'Orbital ' + orb.label;
-      rules.push('n = ' + orb.n + ' (shell ' + orb.n + ').');
-      rules.push('l = ' + orb.l + ' (' + LETTERS[orb.l] + ') is allowed because l can be 0 up to n' + MINUS + '1 = ' + (orb.n - 1) + '.');
-      rules.push('mₗ = ' + signed(orb.ml) + ' lies in the allowed range ' + MINUS + orb.l + ' to +' + orb.l + '.');
-      rules.push('This orbital holds at most 2 electrons.');
+      X.n.push('n = ' + N + ': this orbital sits in shell ' + N + ' (the principal quantum number). ' + nDef);
+      X.n.push('A full shell holds 2n² = ' + shellTotal + ' electrons; this single orbital holds at most 2 of them.');
+      X.l.push('l = ' + oL + ' (' + LETTERS[oL] + '): ' + allowed);
+      X.l.push('Orbitals with the same n and l form a subshell: ' + orb.subshellId + ' has ' + (2 * oL + 1) + ' orbital' + (oL ? 's' : '') + ' and holds 2(2l + 1) = ' + getSubshell(orb.subshellId).capacity + ' electrons.');
+      var range = getSubshell(orb.subshellId).orbitalIds.map(function (oid) { return orbById[oid].ml; }).sort(function (a, b) { return a - b; });
+      X.ml.push(mlRule + '. This orbital has m_{l} = ' + signed(orb.ml) + ' (l = ' + oL + ' allows ' + (2 * oL + 1) + ' value' + (oL ? 's' : '') + ': ' + range.map(signed).join(', ') + ').');
     }
-    rules.push(RULES.ms);
-    if (hasReal) rules.push(RULES.realOrbitals);
+    if (hasReal) X.ml.push(realOrbitalsText(ls));
+    X.ms.push(RULES.ms);
+
+    var rules = [].concat(X.n, X.l, X.ml, X.ms).map(subPlain);
 
     return {
       title: title, level: level,
-      n: ns, l: ls, ml: mls, rules: rules, count: orbs.length,
+      n: ns, l: ls, ml: mls, rules: rules, explain: X, count: count,
       orbitals: ids, capacity: capacity, fullCapacity: fullCapacity,
       ms: [0.5, -0.5]
     };
   }
 
-  var ENERGY_NOTE = 'Schematic only: boxes are ordered by energy for a neutral many-electron atom (Madelung order: lower n + l first, ties go to lower n), but the vertical gaps are not to scale. In hydrogen all subshells of one n have the same energy; with several electrons repulsion separates s, p and d. Orbitals in one subshell (same n and l) stay equal in energy. The 4s/3d (and 5s/4d) order is only approximate and reverses in many ions.';
+  var ENERGY_NOTE = 'Schematic only: boxes follow the many-electron energy order (lower n + l first, ties go to lower n), orbitals in one subshell are equal in energy, and the vertical gaps are not to scale. The 4s/3d (and 5s/4d) order is only approximate and reverses in many ions.';
 
   return {
     SUBSHELLS: SUBSHELLS, ORBITALS: ORBITALS, SHELLS: SHELLS, MAX_ELECTRONS: MAX_ELECTRONS,
@@ -430,6 +507,8 @@
     describeSelection: describeSelection,
     // additions
     elementOf: elementOf, configCounts: configCounts, subshellCounts: subshellCounts,
-    formatConfig: formatConfig, superscript: sup
+    formatConfig: formatConfig, superscript: sup,
+    // labels with real subscripts - see the comment above subHTML
+    orbitalHTML: orbitalHTML, orbitalPlain: orbitalPlain, orbitalMarkup: orbitalMarkup, subHTML: subHTML, subPlain: subPlain
   };
 });

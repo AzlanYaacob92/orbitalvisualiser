@@ -28,11 +28,16 @@
     <h1 class="site-title">Chemulate Orbitals</h1>
   </header>
 
+  <!-- Three cards, left to right: 1 Energy | 2 Quantum numbers | 3 Orbital viewer (sticky).
+       DOM order = reading order on narrow screens (one column). -->
   <main class="viz-layout">
 
-    <!-- ============ ENERGY DIAGRAM ============ -->
+    <!-- ============ 1 · ENERGY DIAGRAM ============ -->
     <section id="panel-diagram" class="card" aria-labelledby="diagram-heading">
-      <h2 id="diagram-heading" class="card-title">Orbital energy diagram</h2>
+      <div class="card-head">
+        <span class="step" aria-hidden="true">1</span>
+        <h2 id="diagram-heading" class="card-title">Energy diagram</h2>
+      </div>
       <div class="slice-bar">
         <fieldset id="slice-mode">
           <legend>Select by</legend>
@@ -42,25 +47,54 @@
             <label><input type="radio" name="slice-mode" value="shell" /> <span>Shell</span></label>
           </div>
         </fieldset>
-        <fieldset id="click-mode">
-          <legend>Clicking a box</legend>
-          <div class="seg">
-            <label><input type="radio" name="click-mode" value="explore" checked /> <span>Explore</span></label>
-            <label><input type="radio" name="click-mode" value="fill" /> <span>Fill electrons</span></label>
-          </div>
-        </fieldset>
         <p class="slice-hint" id="slice-hint"></p>
       </div>
       <div id="energy-diagram"></div>
     </section>
 
-    <!-- ============ 3-D VIEWER ============ -->
+    <!-- ============ 2 · QUANTUM NUMBERS ============ -->
+    <aside id="panel-info" class="card" aria-labelledby="info-heading">
+      <div class="card-head">
+        <span class="step" aria-hidden="true">2</span>
+        <h2 id="info-heading" class="card-title">Quantum numbers</h2>
+      </div>
+      <h3 id="selection-title" class="selection-title"></h3>
+      <dl id="qn-panel">
+        <div class="qn-row"><dt><span class="qn-sym">n</span><span class="qn-name">shell</span></dt><dd id="qn-n"></dd></div>
+        <div class="qn-row"><dt><span class="qn-sym">l</span><span class="qn-name">subshell</span></dt><dd id="qn-l"></dd></div>
+        <div class="qn-row"><dt><span class="qn-sym">m<sub>l</sub></span><span class="qn-name">orbital</span></dt><dd id="qn-ml"></dd></div>
+        <div class="qn-row"><dt><span class="qn-sym">m<sub>s</sub></span><span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
+      </dl>
+      <ul id="qn-rules"></ul>
+
+      <div id="config-panel">
+        <div class="element-row">
+          <label for="element-select">Show electrons for</label>
+          <select id="element-select" class="select"></select>
+        </div>
+        <p id="electron-count" class="electron-count"></p>
+        <p id="config-notation" class="config-notation"></p>
+        <div id="config-status" role="status" aria-live="polite"></div>
+      </div>
+
+      <details id="simplifications" class="more">
+        <summary>What this model simplifies</summary>
+        <ul>
+          <li>Only the <strong>angular shape</strong> is drawn. Radial nodes (for example inside 2s, 3s and 3p) are not shown.</li>
+          <li>These are the <strong>real</strong> orbitals (p<sub>x</sub>, p<sub>y</sub>, p<sub>z</sub>, d<sub>xy</sub> …), which are combinations of the complex orbitals labelled by m<sub>l</sub>. Each real orbital is tied to an m<sub>l</sub> value for bookkeeping only.</li>
+          <li>Orbital size grows with n as n<sup>0.75</sup>. Real average radii grow roughly as n<sup>2</sup>, so this keeps the order of sizes but compresses the ratios.</li>
+          <li>The vertical energy axis is <strong>schematic</strong>: the order is right, the gaps are not to scale.</li>
+          <li>Scope: 1s to 5p (up to xenon, 54 electrons). No f orbitals.</li>
+        </ul>
+      </details>
+    </aside>
+
+    <!-- ============ 3 · 3-D VIEWER (sticky) ============ -->
     <section id="panel-viewer" class="card" aria-labelledby="viewer-heading">
-      <h2 id="viewer-heading" class="card-title">3-D shape</h2>
-      <div id="scale-readout" class="scale-readout" role="status" aria-live="off">
-        <p class="scale-row"><span class="scale-name">Zoom</span> <span id="zoom-readout" class="scale-value">×0.70</span> <span id="zoom-note" class="scale-note">default</span></p>
-        <p class="scale-row"><span class="scale-name">Size vs 1s</span> <span id="size-readout" class="scale-value"></span></p>
-        <p class="scale-row scale-foot">Axis ticks: 1 unit = the size of the 1s orbital. Sizes follow n<sup>0.75</sup> so 5p still fits; the true size grows as n².</p>
+      <div class="card-head">
+        <span class="step" aria-hidden="true">3</span>
+        <h2 id="viewer-heading" class="card-title">Orbital viewer</h2>
+        <button id="btn-reset-view" class="btn btn--ghost" type="button">Reset view</button>
       </div>
       <div class="canvas-wrap">
         <div id="orbital-canvas" role="img" aria-label="Interactive 3-D view of the selected orbitals. Drag to rotate, scroll or pinch to zoom."></div>
@@ -68,45 +102,15 @@
       </div>
       <p class="viewer-hint">Drag to rotate · scroll or pinch to zoom</p>
       <div id="viewer-legend" aria-live="polite"></div>
-      <button id="btn-reset-view" class="btn btn--ghost" type="button">Reset view</button>
+      <div id="scale-readout" class="scale-readout" role="status" aria-live="off">
+        <p class="scale-row"><span class="scale-name">Zoom</span> <span id="zoom-readout" class="scale-value">×0.70</span> <span id="zoom-note" class="scale-note">default</span></p>
+        <p class="scale-row"><span class="scale-name">Size vs 1s</span> <span id="size-readout" class="scale-value"></span></p>
+        <details class="more scale-more">
+          <summary>About the scale</summary>
+          <p>Axis ticks: 1 unit = the size of the 1s orbital. Sizes follow n<sup>0.75</sup> so 5p still fits; the true size grows as n<sup>2</sup>.</p>
+        </details>
+      </div>
     </section>
-
-    <!-- ============ INFO ============ -->
-    <aside id="panel-info" class="card" aria-labelledby="selection-title">
-      <h2 id="selection-title" class="card-title"></h2>
-      <dl id="qn-panel">
-        <div class="qn-row"><dt>n <span class="qn-name">principal</span></dt><dd id="qn-n"></dd></div>
-        <div class="qn-row"><dt>l <span class="qn-name">angular momentum</span></dt><dd id="qn-l"></dd></div>
-        <div class="qn-row"><dt>mₗ <span class="qn-name">magnetic</span></dt><dd id="qn-ml"></dd></div>
-        <div class="qn-row"><dt>mₛ <span class="qn-name">spin</span></dt><dd id="qn-ms"></dd></div>
-      </dl>
-      <ul id="qn-rules"></ul>
-
-      <div id="config-panel">
-        <h3 class="card-subtitle">Fill with electrons</h3>
-        <p class="config-hint">In <strong>Fill electrons</strong> mode, click the left half of a box to add a spin-up electron, the right half for spin-down. Click an electron to remove it. (Keyboard: Enter adds, a third press removes.)</p>
-        <p id="electron-count" class="electron-count"></p>
-        <p id="config-notation" class="config-notation"></p>
-        <div id="config-status" role="status" aria-live="polite"></div>
-        <div class="element-row">
-          <label for="element-select">Load an element</label>
-          <select id="element-select" class="select"></select>
-          <button id="btn-load-element" class="btn btn--soft" type="button">Load</button>
-          <button id="btn-clear" class="btn btn--ghost" type="button">Clear</button>
-        </div>
-      </div>
-
-      <div id="simplifications">
-        <h3 class="card-subtitle">What this model simplifies</h3>
-        <ul>
-          <li>Only the <strong>angular shape</strong> is drawn. Radial nodes (for example inside 2s, 3s and 3p) are not shown.</li>
-          <li>These are the <strong>real</strong> orbitals (pₓ, p_y, p_z, d_xy …), which are combinations of the complex orbitals labelled by mₗ. Each real orbital is tied to an mₗ value for bookkeeping only.</li>
-          <li>Orbital size grows with n as n<sup>0.75</sup>. Real average radii grow roughly as n², so this keeps the order of sizes but compresses the ratios.</li>
-          <li>The vertical energy axis is <strong>schematic</strong>: the order is right, the gaps are not to scale.</li>
-          <li>Scope: 1s to 5p (up to xenon, 54 electrons). No f orbitals.</li>
-        </ul>
-      </div>
-    </aside>
   </main>
 
   <footer class="site-footer">
